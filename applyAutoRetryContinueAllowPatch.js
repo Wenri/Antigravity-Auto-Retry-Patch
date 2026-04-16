@@ -318,7 +318,8 @@ async function applyPatch() {
             return;
         }
     } catch (e) {
-        if (e.code === 'EACCES') {
+        if (!isElevated) log('you do not have sufficient permissions');
+        else if (e.code === 'EACCES') {
             warn('Permission denied while writing file.');
         } else {
             throw e;
