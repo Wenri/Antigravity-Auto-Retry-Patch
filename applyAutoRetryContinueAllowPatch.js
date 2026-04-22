@@ -1,7 +1,20 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { execSync } = require('child_process');
 const readline = require('readline');
+
+const CHECKSUM_KEY = 'vs/code/electron-browser/workbench/workbench.html';
+
+function computeChecksum(buf) {
+    return crypto.createHash('sha256').update(buf).digest('base64').replace(/=+$/, '');
+}
+
+function getProductJsonPath(workbenchPath) {
+    // workbench.html lives at <app>/out/vs/code/electron-browser/workbench/workbench.html
+    // product.json lives at   <app>/product.json  — 5 directories up.
+    return path.resolve(path.dirname(workbenchPath), '..', '..', '..', '..', '..', 'product.json');
+}
 
 /**
  * Antigravity Auto-Retry Patch Utility
@@ -252,6 +265,39 @@ function isElevated() {
     return false;
 }
 
+/**
+ * Writes one or more files to protected destinations, elevating via sudo on
+ * Linux/macOS when needed. Writes are batched into a single sudo invocation so
+ * the user only gets prompted once.
+ *   writes: [{ dest: string, content: string | Buffer }, ...]
+ */
+function writeElevated(writes) {
+    if (writes.length === 0) return;
+
+    if (isElevated()) {
+        for (const { dest, content } of writes) {
+            fs.writeFileSync(dest, content);
+        }
+        return;
+    }
+
+    if (process.platform === 'win32') {
+        error('Insufficient privileges to modify the file. Please run this command prompt or terminal as Administrator.');
+        process.exit(1);
+    }
+
+    const tmpDir = process.env.TMPDIR || '/tmp';
+    const cmds = [];
+    for (let i = 0; i < writes.length; i++) {
+        const { dest, content } = writes[i];
+        const tmp = path.join(tmpDir, `antigravity-patch-${process.pid}-${i}-${path.basename(dest)}`);
+        fs.writeFileSync(tmp, content);
+        cmds.push(`sudo cp "${tmp}" "${dest}"`);
+    }
+    log('Executing sudo to copy files to system path...');
+    execSync(cmds.join(' && '));
+}
+
 function getWorkbenchPath() {
     const relativeWorkbenchPath = path.join('resources', 'app', 'out', 'vs', 'code', 'electron-browser', 'workbench', 'workbench.html');
 
@@ -299,22 +345,43 @@ async function applyPatch() {
     }
 
     const backupPath = workbenchPath + '.bak';
+    const productJsonPath = getProductJsonPath(workbenchPath);
+    const productBakPath = productJsonPath + '.bak';
     let cleanHtml = '';
     //reset all
     try {
         if (choice.includes('reset_all')) {
-            if (fs.existsSync(backupPath)) {
-                log(`Found backup at ${backupPath}. Using it as clean base`);
-                fs.writeFileSync(workbenchPath, fs.readFileSync(backupPath))
-                log('------------------------------------------');
-                log('Reset successfully applied!');
-                log('Please restart Antigravity to see the changes.');
-                log('------------------------------------------');
-            }
-            else {
+            if (!fs.existsSync(backupPath)) {
                 console.log('Backup does not exist, reset aborted')
                 return;
             }
+
+            log(`Found backup at ${backupPath}. Using it as clean base`);
+            const restoredHtml = fs.readFileSync(backupPath);
+            const resetWrites = [{ dest: workbenchPath, content: restoredHtml }];
+
+            if (fs.existsSync(productBakPath)) {
+                log(`Restoring product.json from ${productBakPath}...`);
+                resetWrites.push({ dest: productJsonPath, content: fs.readFileSync(productBakPath) });
+            } else if (fs.existsSync(productJsonPath)) {
+                // No product.json backup (e.g. patch predates checksum support) — recompute
+                // the checksum from the restored workbench.html so the integrity check passes.
+                const product = JSON.parse(fs.readFileSync(productJsonPath, 'utf8'));
+                if (product.checksums && product.checksums[CHECKSUM_KEY]) {
+                    const newSum = computeChecksum(restoredHtml);
+                    if (product.checksums[CHECKSUM_KEY] !== newSum) {
+                        log(`Recomputing product.json checksum for restored workbench.html -> ${newSum}`);
+                        product.checksums[CHECKSUM_KEY] = newSum;
+                        resetWrites.push({ dest: productJsonPath, content: JSON.stringify(product, null, '\t') });
+                    }
+                }
+            }
+
+            writeElevated(resetWrites);
+            log('------------------------------------------');
+            log('Reset successfully applied!');
+            log('Please restart Antigravity to see the changes.');
+            log('------------------------------------------');
             return;
         }
     } catch (e) {
@@ -380,40 +447,36 @@ async function applyPatch() {
             html += injectionScript;
         }
 
-        // 4. Write back with privilege handling
-        log('Writing patched content back to workbench.html...');
+        // 4. Prepare product.json checksum update
+        const writes = [{ dest: workbenchPath, content: html }];
 
-        if (isElevated()) {
-            log('Running with sufficient privileges. Writing directly...');
-            fs.writeFileSync(workbenchPath, html);
-            // Also ensure backup exists if it didn't before (and we have permission now)
-            if (!fs.existsSync(backupPath)) {
-                fs.writeFileSync(backupPath, cleanHtml);
-            }
-            log('File written successfully.');
-        } else {
-            log('Not running with elevated privileges. Attempting to use platform-specific elevation...');
-
-            if (process.platform === 'linux' || process.platform === 'darwin') {
-                const tempPath = path.join(process.env.TMPDIR || '/tmp', 'workbench_patched.html');
-                const tempBakPath = path.join(process.env.TMPDIR || '/tmp', 'workbench.html.bak');
-
-                fs.writeFileSync(tempPath, html);
-                let commands = `sudo cp "${tempPath}" "${workbenchPath}"`;
-
-                if (!fs.existsSync(backupPath)) {
-                    fs.writeFileSync(tempBakPath, cleanHtml);
-                    commands += ` && sudo cp "${tempBakPath}" "${backupPath}"`;
-                }
-
-                log('Executing sudo to copy files to system path...');
-                execSync(commands);
-                log('Files moved successfully using sudo.');
-            } else if (process.platform === 'win32') {
-                error('Insufficient privileges to modify the file. Please run this command prompt or terminal as Administrator.');
-                process.exit(1);
-            }
+        if (!fs.existsSync(backupPath)) {
+            writes.push({ dest: backupPath, content: cleanHtml });
         }
+
+        if (fs.existsSync(productJsonPath)) {
+            const productRaw = fs.readFileSync(productJsonPath, 'utf8');
+            if (!fs.existsSync(productBakPath)) {
+                log(`Backing up product.json to ${productBakPath}...`);
+                writes.push({ dest: productBakPath, content: productRaw });
+            }
+            const product = JSON.parse(productRaw);
+            if (product.checksums && product.checksums[CHECKSUM_KEY]) {
+                const newSum = computeChecksum(Buffer.from(html));
+                log(`Updating product.json checksum for workbench.html -> ${newSum}`);
+                product.checksums[CHECKSUM_KEY] = newSum;
+                writes.push({ dest: productJsonPath, content: JSON.stringify(product, null, '\t') });
+            } else {
+                warn('product.json has no matching checksum entry; skipping checksum update.');
+            }
+        } else {
+            warn(`product.json not found at ${productJsonPath}; skipping checksum update.`);
+        }
+
+        // 5. Write back with privilege handling (batched into a single sudo prompt)
+        log('Writing patched content back to workbench.html...');
+        writeElevated(writes);
+        log('Files written successfully.');
 
         log('------------------------------------------');
         log('Patch successfully applied!');

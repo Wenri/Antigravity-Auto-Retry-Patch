@@ -22,6 +22,7 @@ When working with AI agents or long-running tasks in Antigravity, you might enco
   - Automatically creates a backup (`workbench.html.bak`) before making changes.
   - Safely modifies the Content Security Policy (CSP) to allow the injection.
   - Handles elevation (sudo/Admin) elegantly.
+  - Backs up `product.json` to `product.json.bak` and updates its SHA-256 checksum for `workbench.html` automatically, so Antigravity's integrity check does not warn "Your Antigravity installation appears to be corrupt" after patching.
 
 ## Prerequisites
 - **Node.js**: You must have Node.js installed on your system.
@@ -63,9 +64,11 @@ The script injects a small, lightweight JavaScript snippet into the `workbench.h
 4. Tracks the duration of the "Running" state to trigger the recovery sequence if a timeout is reached.
 
 ## Reverting Changes
-If you ever want to revert the patch:
-1. Locate the `workbench.html.bak` file in the same directory where `workbench.html` was found.
-2. Delete the patched `workbench.html` and rename `workbench.html.bak` back to `workbench.html`.
+The easiest way is to run the script again and pick option **9) Reset all**. This restores both `workbench.html` and `product.json` from their `.bak` files automatically.
+
+If you prefer to revert manually:
+1. Locate `workbench.html.bak` next to `workbench.html` and `product.json.bak` next to `product.json` (under `resources/app/` on Linux/Windows, `Contents/Resources/app/` on macOS).
+2. Replace each patched file with its `.bak` counterpart.
 
 ## License
 Distributed under the **MIT License**. See `LICENSE` for more information.
