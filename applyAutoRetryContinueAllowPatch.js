@@ -51,78 +51,88 @@ function generateInjectionScript(choice) {
 <script type="text/javascript">
 (function() {
     console.log("Antigravity Auto-Retry: Direct Injection successful.");
-    let intervalId = null;
     const clickedButtons = new WeakSet();
-    ${includeContinue ? 'let runningCounter = 0;' : ''}
-    ${includeContinue ? 'let hasSeenDots = false;' : ''}
-    ${includeContinue ? 'let isHandlingSequence = false;' : ''}
+
+    // Word-boundary match — avoids "Truncate" matching "run",
+    // "Resend" matching "send", "disallow" matching "allow", etc.
+    const RETRY_RE  = /\\b(?:retry|try\\s+again|wiederholen)\\b/i;
+    const ALLOW_RE  = /\\ballow\\b/i;
+    const RUN_RE    = /\\brun\\b/i;
+    const CANCEL_RE = /\\bcancel\\b/i;
+    const SEND_RE   = /\\bsend\\b/i;
+
+    const CLICKABLE_SELECTOR = 'button, a.monaco-button, div.monaco-button';
+
+    function buttonText(el) {
+        return (el.getAttribute('aria-label') || el.getAttribute('title') || el.textContent || '');
+    }
+    function matches(el, re) {
+        return re.test(buttonText(el));
+    }
+    function findAnyButton(re) {
+        for (const el of document.querySelectorAll(CLICKABLE_SELECTOR)) {
+            if (matches(el, re)) return el;
+        }
+        return null;
+    }
+    ${(includeRetry || includeAllow || includeRun) ? `
+    function findFreshEnabledButton(re, buttons) {
+        for (const el of buttons) {
+            if (el.disabled) continue;
+            if (clickedButtons.has(el)) continue;
+            if (matches(el, re)) return el;
+        }
+        return null;
+    }
+    ` : ''}
 
     ${includeContinue ? `
-    /**
-     * Helper to find buttons by title, aria-label, or text.
-     */
-    function findButtonByAttribute(searchText) {
-        const elements = Array.from(document.querySelectorAll('button, a.monaco-button, div.monaco-button'));
-        const regex = new RegExp(searchText, 'i');
-        return elements.find(el => {
-            const title = el.getAttribute('title') || '';
-            const ariaLabel = el.getAttribute('aria-label') || '';
-            const text = el.textContent || '';
-            return regex.test(title) || regex.test(ariaLabel) || regex.test(text);
-        }) || null;
-    }
+    let runningCounter = 0;
+    let hasSeenDots = false;
+    let isHandlingSequence = false;
+    let lastRecoveryAt = 0;
+    const RECOVERY_COOLDOWN_MS = 60000;
 
-    /**
-     * Sets value and triggers events for an input field.
-     */
     function setInputValue(selector, value) {
         const input = document.querySelector(selector);
-        if (input) {
-            input.focus();
-            input.value = value;
-            input.dispatchEvent(new Event('input', { bubbles: true }));
-            input.dispatchEvent(new Event('change', { bubbles: true }));
-            return true;
-        }
-        return false;
+        if (!input) return false;
+        input.focus();
+        input.value = value;
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true }));
+        return true;
     }
 
-    /**
-     * Recovery sequence: Cancel -> 3s -> "continue" -> 3s -> Send
-     */
     async function executeRecoverySequence() {
         if (isHandlingSequence) return;
         isHandlingSequence = true;
-        
+        lastRecoveryAt = Date.now();
         console.log('Antigravity Auto-Retry: "Running" state detected for > 30s. Executing recovery...');
-
         try {
-            // 1. Click Cancel
-            const cancelButton = findButtonByAttribute('Cancel');
-            if (cancelButton) {
-                console.log('Antigravity Auto-Retry: Clicking Cancel button.');
-                cancelButton.click();
+            const cancelButton = findAnyButton(CANCEL_RE);
+            if (!cancelButton) {
+                // No Cancel button visible — the "Running" match is almost
+                // certainly stale text in chat history, not an active task.
+                // Skip the rest to avoid spuriously sending "continue".
+                console.log('Antigravity Auto-Retry: No Cancel button found; skipping recovery (likely false positive).');
+                return;
             }
+            console.log('Antigravity Auto-Retry: Clicking Cancel button.');
+            cancelButton.click();
 
-            // 2. Wait 3 seconds
             await new Promise(r => setTimeout(r, 3000));
 
-            // 3. Type "continue"
-            const inputFound = setInputValue('textarea[placeholder*="Ask anything" i], input[placeholder*="Ask anything" i]', 'continue');
-            if (inputFound) {
+            if (setInputValue('textarea[placeholder*="Ask anything" i], input[placeholder*="Ask anything" i]', 'continue')) {
                 console.log('Antigravity Auto-Retry: Input "continue" set.');
             }
 
-            // 4. Wait 3 seconds
             await new Promise(r => setTimeout(r, 3000));
 
-            // 5. Click Send
-            const sendButton = findButtonByAttribute('Send');
+            const sendButton = findAnyButton(SEND_RE);
             if (sendButton) {
                 console.log('Antigravity Auto-Retry: Clicking Send button.');
                 sendButton.click();
             }
-
         } catch (e) {
             console.error('Antigravity Auto-Retry: Error during recovery sequence:', e);
         } finally {
@@ -133,82 +143,69 @@ function generateInjectionScript(choice) {
     }
     ` : ''}
 
-    function startAutoRetry() {
-        if (intervalId) return;
-        intervalId = setInterval(() => {
-            try {
-                const buttons = Array.from(document.querySelectorAll("button, a.monaco-button"));
-
-                ${includeRetry ? `
-                // --- Part 1: Auto Retry logic ---
-                const retryButton = buttons.find(button => {
-                    const text = (button.textContent || "").toLowerCase();
-                    return (text.includes("retry") || 
-                           text.includes("wiederholen") || 
-                           text.includes("try again")) && !clickedButtons.has(button);
-                });
-                if (retryButton && !(retryButton.disabled)) {
-                    console.log("Antigravity Auto-Retry: Found Retry button. Clicking...");
-                    clickedButtons.add(retryButton);
-                    retryButton.click();
-                }
-                ` : ''}
-
-                ${includeAllow ? `
-                // --- Part 2: Auto Allow logic ---
-                const allowButton = buttons.find(button => {
-                    const text = (button.textContent || "").toLowerCase();
-                    return text.includes("allow") && !clickedButtons.has(button);
-                });
-                if (allowButton && !(allowButton.disabled)) {
-                    console.log("Antigravity Auto-Retry: Found Allow button. Clicking...");
-                    clickedButtons.add(allowButton);
-                    allowButton.click();
-                }
-                ` : ''}
-
-                ${includeRun ? `
-                // --- Part 3: Auto Run logic ---
-                const runButton = buttons.find(button => {
-                    const text = (button.textContent || "").toLowerCase();
-                    return text.includes("run") && !clickedButtons.has(button);
-                });
-                if (runButton && !(runButton.disabled)) {
-                    console.log("Antigravity Auto-Retry: Found Run button. Clicking...");
-                    clickedButtons.add(runButton);
-                    runButton.click();
-                }
-                ` : ''}
-
-                ${includeContinue ? `
-                // --- Part 4: "Running" monitoring logic (Auto Continue) ---
-                if (!isHandlingSequence) {
-                    const bodyText = document.body.innerText || '';
-                    const hasDots = /Running[.]{1,3}/.test(bodyText);
-                    const hasPlain = bodyText.includes('Running');
-
-                    if (hasDots) {
-                        hasSeenDots = true;
-                    }
-
-                    // Count if we see dots, OR if we have seen dots in this streak and still see plain "Running"
-                    if (hasDots || (hasSeenDots && hasPlain)) {
-                        runningCounter++;
-                        if (runningCounter >= 300) { // 30 seconds at 100ms interval
-                            executeRecoverySequence();
-                        }
-                    } else {
-                        runningCounter = 0;
-                        hasSeenDots = false;
-                    }
-                }
-                ` : ''}
-            } catch (e) {
-                console.error("Antigravity Auto-Retry loop error:", e);
+    function tick() {
+        try {
+            ${(includeRetry || includeAllow || includeRun) ? `
+            const buttons = document.querySelectorAll('button, a.monaco-button');
+            ` : ''}
+            ${includeRetry ? `
+            const retryButton = findFreshEnabledButton(RETRY_RE, buttons);
+            if (retryButton) {
+                console.log("Antigravity Auto-Retry: Found Retry button. Clicking...");
+                clickedButtons.add(retryButton);
+                retryButton.click();
             }
-        }, 100);
+            ` : ''}
+
+            ${includeAllow ? `
+            const allowButton = findFreshEnabledButton(ALLOW_RE, buttons);
+            if (allowButton) {
+                console.log("Antigravity Auto-Retry: Found Allow button. Clicking...");
+                clickedButtons.add(allowButton);
+                allowButton.click();
+            }
+            ` : ''}
+
+            ${includeRun ? `
+            const runButton = findFreshEnabledButton(RUN_RE, buttons);
+            if (runButton) {
+                console.log("Antigravity Auto-Retry: Found Run button. Clicking...");
+                clickedButtons.add(runButton);
+                runButton.click();
+            }
+            ` : ''}
+
+            ${includeContinue ? `
+            if (!isHandlingSequence) {
+                const bodyText = document.body.innerText || '';
+                const hasDots = /Running[.]{1,3}/.test(bodyText);
+                const hasPlain = bodyText.includes('Running');
+
+                if (hasDots) hasSeenDots = true;
+
+                if (hasDots || (hasSeenDots && hasPlain)) {
+                    runningCounter++;
+                    if (runningCounter >= 300) { // 30s at 100ms
+                        if (Date.now() - lastRecoveryAt >= RECOVERY_COOLDOWN_MS) {
+                            executeRecoverySequence();
+                        } else {
+                            // In cooldown: stop re-triggering every 100ms.
+                            runningCounter = 0;
+                            hasSeenDots = false;
+                        }
+                    }
+                } else {
+                    runningCounter = 0;
+                    hasSeenDots = false;
+                }
+            }
+            ` : ''}
+        } catch (e) {
+            console.error("Antigravity Auto-Retry loop error:", e);
+        }
     }
-    startAutoRetry();
+
+    setInterval(tick, 100);
 })();
 </script>
 <!-- Antigravity Auto-Retry Patch End -->
@@ -265,10 +262,15 @@ function isElevated() {
     return false;
 }
 
+// POSIX single-quote shell-escape: wraps in '...' and escapes embedded '.
+function shellQuote(s) {
+    return `'${String(s).replace(/'/g, `'\\''`)}'`;
+}
+
 /**
  * Writes one or more files to protected destinations, elevating via sudo on
  * Linux/macOS when needed. Writes are batched into a single sudo invocation so
- * the user only gets prompted once.
+ * the user only gets prompted once. Temp files are cleaned up after.
  *   writes: [{ dest: string, content: string | Buffer }, ...]
  */
 function writeElevated(writes) {
@@ -287,15 +289,23 @@ function writeElevated(writes) {
     }
 
     const tmpDir = process.env.TMPDIR || '/tmp';
+    const tmpFiles = [];
     const cmds = [];
-    for (let i = 0; i < writes.length; i++) {
-        const { dest, content } = writes[i];
-        const tmp = path.join(tmpDir, `antigravity-patch-${process.pid}-${i}-${path.basename(dest)}`);
-        fs.writeFileSync(tmp, content);
-        cmds.push(`sudo cp "${tmp}" "${dest}"`);
+    try {
+        for (let i = 0; i < writes.length; i++) {
+            const { dest, content } = writes[i];
+            const tmp = path.join(tmpDir, `antigravity-patch-${process.pid}-${i}-${path.basename(dest)}`);
+            fs.writeFileSync(tmp, content);
+            tmpFiles.push(tmp);
+            cmds.push(`sudo cp ${shellQuote(tmp)} ${shellQuote(dest)}`);
+        }
+        log('Executing sudo to copy files to system path...');
+        execSync(cmds.join(' && '), { stdio: 'inherit' });
+    } finally {
+        for (const tmp of tmpFiles) {
+            try { fs.unlinkSync(tmp); } catch (_) { /* best effort */ }
+        }
     }
-    log('Executing sudo to copy files to system path...');
-    execSync(cmds.join(' && '));
 }
 
 function getWorkbenchPath() {
@@ -332,6 +342,130 @@ function getWorkbenchPath() {
     return null;
 }
 
+/**
+ * If product.json has a checksum entry for workbench.html, queue an update
+ * so it matches the given HTML buffer. No-op when the file is absent, the
+ * checksums map is missing, or the checksum already matches.
+ */
+function queueChecksumUpdate(writes, productJsonPath, htmlBuf, verb) {
+    if (!fs.existsSync(productJsonPath)) {
+        warn(`product.json not found at ${productJsonPath}; skipping checksum update.`);
+        return;
+    }
+    const product = JSON.parse(fs.readFileSync(productJsonPath, 'utf8'));
+    if (!product.checksums || !product.checksums[CHECKSUM_KEY]) {
+        warn('product.json has no matching checksum entry; skipping checksum update.');
+        return;
+    }
+    const newSum = computeChecksum(htmlBuf);
+    if (product.checksums[CHECKSUM_KEY] === newSum) return;
+    log(`${verb} product.json checksum for workbench.html -> ${newSum}`);
+    product.checksums[CHECKSUM_KEY] = newSum;
+    writes.push({ dest: productJsonPath, content: JSON.stringify(product, null, '\t') });
+}
+
+async function resetAll(workbenchPath, backupPath, productJsonPath, productBakPath) {
+    if (!fs.existsSync(backupPath)) {
+        error(`Backup not found at ${backupPath}; nothing to reset.`);
+        return;
+    }
+
+    log(`Found backup at ${backupPath}. Using it as clean base`);
+    const restoredHtml = fs.readFileSync(backupPath);
+    const writes = [{ dest: workbenchPath, content: restoredHtml }];
+
+    if (fs.existsSync(productBakPath)) {
+        log(`Restoring product.json from ${productBakPath}...`);
+        writes.push({ dest: productJsonPath, content: fs.readFileSync(productBakPath) });
+    } else {
+        // No product.json backup (patch predates checksum support) — recompute
+        // the checksum from the restored workbench.html so integrity passes.
+        queueChecksumUpdate(writes, productJsonPath, restoredHtml, 'Recomputing');
+    }
+
+    writeElevated(writes);
+    log('------------------------------------------');
+    log('Reset successfully applied!');
+    log('Please restart Antigravity to see the changes.');
+    log('------------------------------------------');
+}
+
+async function patch(choice, workbenchPath, backupPath, productJsonPath, productBakPath) {
+    // 1. Determine clean base content
+    let cleanHtml;
+    let backupOnDisk = fs.existsSync(backupPath);
+    if (backupOnDisk) {
+        log(`Found backup at ${backupPath}. Using it as clean base to prevent double patching.`);
+        cleanHtml = fs.readFileSync(backupPath, 'utf8');
+    } else {
+        log(`No backup found. Reading current file and creating backup at ${backupPath}...`);
+        cleanHtml = fs.readFileSync(workbenchPath, 'utf8');
+
+        if (cleanHtml.includes('Antigravity Auto-Retry Patch')) {
+            error('The current workbench.html already contains a patch but no .bak file exists.');
+            error('To be safe, please manually restore a clean workbench.html or create a workbench.html.bak from a clean version.');
+            return;
+        }
+
+        try {
+            fs.writeFileSync(backupPath, cleanHtml);
+            backupOnDisk = true;
+            log('Backup created successfully.');
+        } catch (e) {
+            if (e.code !== 'EACCES') throw e;
+            warn('Permission denied while creating backup. Will write the backup via elevated privileges in the final step.');
+        }
+    }
+
+    log('Preparing patched content...');
+    let html = cleanHtml;
+    const injectionScript = generateInjectionScript(choice);
+
+    // 2. Inject 'unsafe-inline' into CSP (Content Security Policy)
+    html = html.replace(/(script-src\s+[^;]*)/, (match) => {
+        if (!match.includes("'unsafe-inline'")) {
+            log('Updating CSP to allow injected script (adding \'unsafe-inline\')...');
+            return match + " 'unsafe-inline'";
+        }
+        return match;
+    });
+
+    // 3. Inject the script before </body> or at the end of body
+    if (html.includes('</body>')) {
+        log('Injecting script before </body> tag...');
+        html = html.replace('</body>', injectionScript + '</body>');
+    } else if (html.includes('<body')) {
+        log('Injecting script after <body ...> tag...');
+        html = html.replace(/(<body[^>]*>)/, (match) => match + injectionScript);
+    } else {
+        warn('Could not find <body> tag, appending script to the end of file.');
+        html += injectionScript;
+    }
+
+    // 4. Queue writes
+    const writes = [{ dest: workbenchPath, content: html }];
+    if (!backupOnDisk) {
+        writes.push({ dest: backupPath, content: cleanHtml });
+    }
+
+    // 5. Back up product.json (first patch only) and update its checksum
+    if (fs.existsSync(productJsonPath) && !fs.existsSync(productBakPath)) {
+        log(`Backing up product.json to ${productBakPath}...`);
+        writes.push({ dest: productBakPath, content: fs.readFileSync(productJsonPath) });
+    }
+    queueChecksumUpdate(writes, productJsonPath, Buffer.from(html), 'Updating');
+
+    // 6. Write back with privilege handling (batched into a single sudo prompt)
+    log('Writing patched content back to workbench.html...');
+    writeElevated(writes);
+    log('Files written successfully.');
+
+    log('------------------------------------------');
+    log('Patch successfully applied!');
+    log('Please restart Antigravity to see the changes.');
+    log('------------------------------------------');
+}
+
 async function applyPatch() {
     log('--- Antigravity Retry Patch Utility ---');
 
@@ -347,144 +481,20 @@ async function applyPatch() {
     const backupPath = workbenchPath + '.bak';
     const productJsonPath = getProductJsonPath(workbenchPath);
     const productBakPath = productJsonPath + '.bak';
-    let cleanHtml = '';
-    //reset all
+
     try {
-        if (choice.includes('reset_all')) {
-            if (!fs.existsSync(backupPath)) {
-                console.log('Backup does not exist, reset aborted')
-                return;
-            }
-
-            log(`Found backup at ${backupPath}. Using it as clean base`);
-            const restoredHtml = fs.readFileSync(backupPath);
-            const resetWrites = [{ dest: workbenchPath, content: restoredHtml }];
-
-            if (fs.existsSync(productBakPath)) {
-                log(`Restoring product.json from ${productBakPath}...`);
-                resetWrites.push({ dest: productJsonPath, content: fs.readFileSync(productBakPath) });
-            } else if (fs.existsSync(productJsonPath)) {
-                // No product.json backup (e.g. patch predates checksum support) — recompute
-                // the checksum from the restored workbench.html so the integrity check passes.
-                const product = JSON.parse(fs.readFileSync(productJsonPath, 'utf8'));
-                if (product.checksums && product.checksums[CHECKSUM_KEY]) {
-                    const newSum = computeChecksum(restoredHtml);
-                    if (product.checksums[CHECKSUM_KEY] !== newSum) {
-                        log(`Recomputing product.json checksum for restored workbench.html -> ${newSum}`);
-                        product.checksums[CHECKSUM_KEY] = newSum;
-                        resetWrites.push({ dest: productJsonPath, content: JSON.stringify(product, null, '\t') });
-                    }
-                }
-            }
-
-            writeElevated(resetWrites);
-            log('------------------------------------------');
-            log('Reset successfully applied!');
-            log('Please restart Antigravity to see the changes.');
-            log('------------------------------------------');
-            return;
-        }
-    } catch (e) {
-        if (!isElevated()) error('You do not have sufficient permissions. Run the script again as administrator');
-        else if (e.code === 'EACCES') {
-            warn('Permission denied while writing file.');
+        if (choice === 'reset_all') {
+            await resetAll(workbenchPath, backupPath, productJsonPath, productBakPath);
         } else {
-            throw e;
+            await patch(choice, workbenchPath, backupPath, productJsonPath, productBakPath);
         }
-        return;
-    }
-    //normal patching proces
-    try {
-        // 1. Determine clean base content
-        if (fs.existsSync(backupPath)) {
-            log(`Found backup at ${backupPath}. Using it as clean base to prevent double patching.`);
-            cleanHtml = fs.readFileSync(backupPath, 'utf8');
-        } else {
-            log(`No backup found. Reading current file and creating backup at ${backupPath}...`);
-            cleanHtml = fs.readFileSync(workbenchPath, 'utf8');
-
-            // Initial check to make sure we don't backup a file that's already patched
-            if (cleanHtml.includes('Antigravity Auto-Retry Patch')) {
-                error('The current workbench.html already contains a patch but no .bak file exists.');
-                error('To be safe, please manually restore a clean workbench.html or create a workbench.html.bak from a clean version.');
-                return;
-            }
-
-            try {
-                fs.writeFileSync(backupPath, cleanHtml);
-                log('Backup created successfully.');
-            } catch (e) {
-                if (e.code === 'EACCES') {
-                    warn('Permission denied while creating backup. We will attempt to write the backup using elevated privileges during the final step.');
-                } else {
-                    throw e;
-                }
-            }
-        }
-
-        log('Preparing patched content...');
-        let html = cleanHtml;
-        const injectionScript = generateInjectionScript(choice);
-
-        // 2. Inject 'unsafe-inline' into CSP (Content Security Policy)
-        html = html.replace(/(script-src\s+[^;]*)/, (match) => {
-            if (!match.includes("'unsafe-inline'")) {
-                log('Updating CSP to allow injected script (adding \'unsafe-inline\')...');
-                return match + " 'unsafe-inline'";
-            }
-            return match;
-        });
-
-        // 3. Inject the script before </body> or at the end of body
-        if (html.includes('</body>')) {
-            log('Injecting script before </body> tag...');
-            html = html.replace('</body>', injectionScript + '</body>');
-        } else if (html.includes('<body')) {
-            log('Injecting script after <body ...> tag...');
-            html = html.replace(/(<body[^>]*>)/, (match) => match + injectionScript);
-        } else {
-            warn('Could not find <body> tag, appending script to the end of file.');
-            html += injectionScript;
-        }
-
-        // 4. Prepare product.json checksum update
-        const writes = [{ dest: workbenchPath, content: html }];
-
-        if (!fs.existsSync(backupPath)) {
-            writes.push({ dest: backupPath, content: cleanHtml });
-        }
-
-        if (fs.existsSync(productJsonPath)) {
-            const productRaw = fs.readFileSync(productJsonPath, 'utf8');
-            if (!fs.existsSync(productBakPath)) {
-                log(`Backing up product.json to ${productBakPath}...`);
-                writes.push({ dest: productBakPath, content: productRaw });
-            }
-            const product = JSON.parse(productRaw);
-            if (product.checksums && product.checksums[CHECKSUM_KEY]) {
-                const newSum = computeChecksum(Buffer.from(html));
-                log(`Updating product.json checksum for workbench.html -> ${newSum}`);
-                product.checksums[CHECKSUM_KEY] = newSum;
-                writes.push({ dest: productJsonPath, content: JSON.stringify(product, null, '\t') });
-            } else {
-                warn('product.json has no matching checksum entry; skipping checksum update.');
-            }
-        } else {
-            warn(`product.json not found at ${productJsonPath}; skipping checksum update.`);
-        }
-
-        // 5. Write back with privilege handling (batched into a single sudo prompt)
-        log('Writing patched content back to workbench.html...');
-        writeElevated(writes);
-        log('Files written successfully.');
-
-        log('------------------------------------------');
-        log('Patch successfully applied!');
-        log('Please restart Antigravity to see the changes.');
-        log('------------------------------------------');
-
     } catch (err) {
-        error(`An error occurred during the patching process: ${err.message}`);
+        if (err.code === 'EACCES') {
+            error('Permission denied. Run the script again as administrator (sudo on Linux/macOS, "Run as Administrator" on Windows).');
+        } else {
+            error(`An error occurred: ${err.message}`);
+        }
+        process.exitCode = 1;
     }
 }
 
