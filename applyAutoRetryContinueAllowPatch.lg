@@ -1,0 +1,141 @@
+#!/usr/bin/env ucblogo
+
+; ========================================================
+; ANTIGRAVITY PATCHER - LOGO TURTLE EDITION
+; Run with: ucblogo applyAutoRetryContinueAllowPatch.lg
+;
+; Logo quirks to know:
+;   - |vbar| words need " prefix for data:  "|hello world|
+;   - | inside vbars must be escaped:       "|\||
+;   - SHELL without "w returns list-of-lists (READLIST per line)
+; ========================================================
+
+; --- Primitives ---
+
+TO CHECK.FILE :FILEPATH
+  OUTPUT FILEP :FILEPATH
+END
+
+TO FLATTEN :X
+  ; Recursively concat all nested words: [[a b] [c d]] → "abcd"
+  IF WORDP :X [ OUTPUT :X ]
+  IF EMPTYP :X [ OUTPUT " ]
+  OUTPUT WORD FLATTEN FIRST :X FLATTEN BUTFIRST :X
+END
+
+TO JOIN.PIPE :CMDS
+  IF EQUALP COUNT :CMDS 1 [ OUTPUT FIRST :CMDS ]
+  OUTPUT (SE FIRST :CMDS "|\|| JOIN.PIPE BUTFIRST :CMDS)
+END
+
+TO STRIP.PAD :W
+  IF EMPTYP :W [ OUTPUT :W ]
+  IF EQUALP LAST :W "= [ OUTPUT STRIP.PAD BUTLAST :W ]
+  OUTPUT :W
+END
+
+TO WRITE.LINES :FILE :LINES
+  OPENWRITE :FILE
+  SETWRITE  :FILE
+  FOREACH :LINES [ PRINT ? ]
+  CLOSE :FILE
+END
+
+; --- Application ---
+
+TO FIND.WORKBENCH
+  LOCALMAKE "LINUX "|/opt/antigravity/resources/app/out/vs/code/electron-browser/workbench/workbench.html|
+  IF CHECK.FILE :LINUX [ OUTPUT :LINUX ]
+  OUTPUT "NULL
+END
+
+TO GENERATE.INJECTION :MODE
+  OUTPUT [
+    |<script>|
+    |(function() {|
+    |  const clickedButtons = new WeakSet();|
+    |  const SELECTOR = 'button, a.monaco-button';|
+    |  setInterval(() => {|
+    |    /* JS Injection Logic Omitted for Turtle Sanity */|
+    |  }, 100);|
+    |})();|
+    |</script>|
+    ]
+END
+
+TO QUEUE.CHECKSUM :PROD :TMP.HTML
+  IF NOT CHECK.FILE :PROD [ STOP ]
+
+  LOCALMAKE "HASH STRIP.PAD FLATTEN SHELL JOIN.PIPE (LIST ~
+    (SE "cat :TMP.HTML) ~
+    [openssl dgst -sha256 -binary] ~
+    [base64])
+
+  ; jq output needs "w — JSON contains {, }, [ which confuse READLIST.
+  LOCALMAKE "JQ_OUT (SHELL ~
+    (SE "jq "--arg "h (WORD "' :HASH "') ~
+        "|'.checksums["vs/code/electron-browser/workbench/workbench.html"] = $h'| ~
+        :PROD) ~
+    "w)
+
+  WRITE.LINES "|/tmp/prod.json| :JQ_OUT
+  MAKE "WRITES LPUT (LIST :PROD "|/tmp/prod.json|) :WRITES
+END
+
+TO BUILD.CP :WRITES
+  ; Recursively build "cp src dest && cp src dest && ... echo Done'"
+  IF EMPTYP :WRITES [ OUTPUT "|echo Done'| ]
+  OUTPUT (WORD "|cp | LAST FIRST :WRITES "| | FIRST FIRST :WRITES "| && | BUILD.CP BUTFIRST :WRITES)
+END
+
+TO ELEVATE.AND.WRITE :WRITES
+  IF EMPTYP :WRITES [ STOP ]
+  PRINT [!!! The turtle is requesting sudo elevation !!!]
+  IGNORE SHELL (WORD "|sudo sh -c '| BUILD.CP :WRITES)
+END
+
+TO PATCH.FLOW :MODE :WB :BAK :PROD :PRODBAK
+  MAKE "WRITES []
+
+  IFELSE CHECK.FILE :BAK [
+    PRINT [Clean backup found.]
+  ] [
+    PRINT [No backup found. Queueing backup...]
+    MAKE "WRITES LPUT (LIST :BAK :WB) :WRITES
+  ]
+
+  WRITE.LINES "|/tmp/payload.js| (GENERATE.INJECTION :MODE)
+
+  LOCALMAKE "HTML.TMP "|/tmp/workbench.html|
+  IGNORE SHELL (SE "cp :WB :HTML.TMP)
+  LOCALMAKE "SED.ARG (WORD "|'/<\\/body>/r /tmp/payload.js'|)
+  IGNORE SHELL (SE "sed "-i "-e :SED.ARG :HTML.TMP)
+
+  MAKE "WRITES LPUT (LIST :WB :HTML.TMP) :WRITES
+  QUEUE.CHECKSUM :PROD :HTML.TMP
+
+  ELEVATE.AND.WRITE :WRITES
+END
+
+TO MAIN
+  PRINT [====================================]
+  PRINT [ ANTIGRAVITY PATCHER - LOGO EDITION ]
+  PRINT [====================================]
+
+  LOCALMAKE "WB FIND.WORKBENCH
+
+  IF EQUALP :WB "NULL [
+    PRINT [Error: Antigravity not installed!]
+    STOP
+  ]
+
+  PATCH.FLOW "all :WB (WORD :WB "|.bak|) ~
+    "|/opt/antigravity/resources/app/product.json| ~
+    (WORD "|/opt/antigravity/resources/app/product.json| "|.bak|)
+
+  CATCH "ERROR [ CS PENDOWN REPEAT 4 [ FORWARD 100 RIGHT 90 ] ]
+  PRINT [Patch complete. The turtle draws a square and rests.]
+END
+
+MAIN
+BYE
