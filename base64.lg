@@ -5,7 +5,11 @@
 ;   LOAD "base64.lg
 ;   PRINT B64.ENCODE [72 101 108 108 111]
 ;   ; -> SGVsbG8=
+;
+; Depends on: lib.lg (Y)
 ; ========================================================
+
+LOAD "lib.lg
 
 TO B64.CHAR :V
   ; Map 6-bit value (0-63) to base64 character.
@@ -22,27 +26,22 @@ TO B64.TRIPLE :B1 :B2 :B3
 END
 
 TO B64.ENCODE :BYTES
-  ; Base64-encode a list of bytes (RFC 4648).
-  OUTPUT B64.GO :BYTES "||
-END
-
-TO B64.GO :BYTES :ACC
-  IF EMPTYP :BYTES [ OUTPUT :ACC ]
-  IF (COUNT :BYTES) = 1 [
-    LOCALMAKE "V (FIRST :BYTES) * 16
-    OUTPUT (WORD :ACC ~
-      B64.CHAR INT :V / 64 ~
-      B64.CHAR REMAINDER :V 64 ~
-      "==)
-  ]
-  IF (COUNT :BYTES) = 2 [
-    LOCALMAKE "V ((FIRST :BYTES) * 256 + FIRST BF :BYTES) * 4
-    OUTPUT (WORD :ACC ~
-      B64.CHAR INT :V / 4096 ~
-      B64.CHAR REMAINDER INT :V / 64 64 ~
-      B64.CHAR REMAINDER :V 64 ~
-      "=)
-  ]
-  OUTPUT B64.GO BF BF BF :BYTES ~
-    (WORD :ACC B64.TRIPLE FIRST :BYTES FIRST BF :BYTES FIRST BF BF :BYTES)
+  ; Base64-encode a list of bytes (RFC 4648) via Y combinator.
+  OUTPUT ~
+    (INVOKE Y [[B A SELF] ~
+      IFELSE EMPTYP :B [:A] [ ~
+      IFELSE (COUNT :B) = 1 [ ~
+        LOCALMAKE "V (FIRST :B) * 16 ~
+        (WORD :A B64.CHAR INT :V / 64 B64.CHAR REMAINDER :V 64 "==) ~
+      ] [ ~
+      IFELSE (COUNT :B) = 2 [ ~
+        LOCALMAKE "V ((FIRST :B) * 256 + FIRST BF :B) * 4 ~
+        (WORD :A B64.CHAR INT :V / 4096 ~
+          B64.CHAR REMAINDER INT :V / 64 64 ~
+          B64.CHAR REMAINDER :V 64 "=) ~
+      ] [ ~
+        (INVOKE :SELF BF BF BF :B ~
+          (WORD :A B64.TRIPLE FIRST :B FIRST BF :B FIRST BF BF :B)) ~
+      ]]]] ~
+    :BYTES "||)
 END
