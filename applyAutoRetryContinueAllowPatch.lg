@@ -43,19 +43,19 @@ TO STRIP.PAD :W
   OUTPUT :W
 END
 
-TO Y :F :ARG
+TO Y [:F] 1
   ; Fixed-point combinator via templates.
-  ; :F is a template (Logo's lambda): ?1 = self, ?2 = arg.
-  ; MAP applies the template; FIRST extracts the single result.
+  ; FIRST :F = template, :F = [template args...].
+  ; APPLY passes ?1 = template (self), ?2.. = args.
   ;
   ; Examples:
   ;   MAKE "FACT [IFELSE ?2 = 0 [1] [?2 * Y ?1 ?2 - 1]]
   ;   Y :FACT 5   ; → 120
   ;
-  ;   MAKE "FIB [IFELSE ?2 < 2 [?2] [(Y ?1 ?2 - 1) + (Y ?1 ?2 - 2)]]
-  ;   Y :FIB 10   ; → 55
+  ;   MAKE "GCD [IFELSE ?3 = 0 [?2] [(Y ?1 ?3 REMAINDER ?2 ?3)]]
+  ;   (Y :GCD 12 8)   ; → 4
   ;
-  OUTPUT FIRST (MAP :F (LIST :F) (LIST :ARG))
+  OUTPUT APPLY FIRST :F :F
 END
 
 TO WRITE.LINES :FILE :LINES
