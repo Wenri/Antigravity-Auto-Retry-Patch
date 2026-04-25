@@ -1,0 +1,161 @@
+; ========================================================
+; lib.lg -- Reusable UCBLogo Primitives
+;
+; Usage:  LOAD "lib.lg
+;
+; Contents:
+;   Word/List utilities:  FLATTEN, JOIN.WITH, JOIN.PIPE,
+;                         SH.QUOTE, STRIP.PAD, WRITE.LINES
+;   File utilities:       CHECK.FILE
+;   Combinator:           Y
+;   32-bit arithmetic:    W32, ROTR, SHR, W32.ADD, MKW
+;   Math:                 PRIMEP, NPRIMES, FRAC32
+;   Formatting:           HEX8
+; ========================================================
+
+; --- Word / List utilities ---
+
+TO FLATTEN :X
+  ; Recursively concat all nested words: [[a b] [c d]] -> "abcd"
+  IF WORDP :X [ OUTPUT :X ]
+  OUTPUT APPLY "WORD MAP "FLATTEN :X
+END
+
+TO JOIN.WITH :SEP :CMDS
+  ; Join list-of-lists with :SEP between them.
+  IF EQUALP COUNT :CMDS 1 [ OUTPUT FIRST :CMDS ]
+  OUTPUT (SE FIRST :CMDS :SEP JOIN.WITH :SEP BUTFIRST :CMDS)
+END
+
+TO JOIN.PIPE :CMDS
+  OUTPUT JOIN.WITH "|\|| :CMDS
+END
+
+TO SH.QUOTE :LST
+  ; Join with spaces and wrap in single quotes: [a b] -> 'a b'
+  OUTPUT (WORD "' FLATTEN JOIN.WITH "| | :LST "')
+END
+
+TO STRIP.PAD :W
+  IF EMPTYP :W [ OUTPUT :W ]
+  IF EQUALP LAST :W "= [ OUTPUT STRIP.PAD BUTLAST :W ]
+  OUTPUT :W
+END
+
+TO WRITE.LINES :FILE :LINES
+  OPENWRITE :FILE
+  SETWRITE  :FILE
+  FOREACH :LINES [ PRINT ? ]
+  CLOSE :FILE
+END
+
+; --- File utilities ---
+
+TO CHECK.FILE :FILEPATH
+  OUTPUT FILEP :FILEPATH
+END
+
+; --- Combinator ---
+
+TO Y :F
+  ; Fixed-point combinator via templates.
+  ; FIRST :F = [template].
+  ;
+  ; Code-is-data example:
+  ;   PRINT INVOKE Y [[N F] IFELSE :N=0 [1] [:N * INVOKE :F :N-1]] 10
+  ;
+  LOCALMAKE "S MAP [WORD "? #] BL FIRST :F
+  OUTPUT `[( INVOKE ,:F ,@ :S , [`[( INVOKE Y ,:F ,@ :S )]] )]
+END
+
+; --- 32-bit word primitives ---
+
+TO W32 :N
+  ; Clamp to unsigned 32-bit via REMAINDER.
+  LOCALMAKE "R REMAINDER :N (LSHIFT 1 32)
+  IF :R < 0 [ OUTPUT :R + (LSHIFT 1 32) ]
+  OUTPUT :R
+END
+
+TO ROTR :X :N
+  OUTPUT W32 BITOR (LSHIFT :X (0 - :N)) (LSHIFT :X (32 - :N))
+END
+
+TO SHR :X :N
+  OUTPUT LSHIFT :X (0 - :N)
+END
+
+TO W32.ADD :A :B
+  OUTPUT W32 (:A + :B)
+END
+
+TO MKW :B3 :B2 :B1 :B0
+  ; Pack 4 bytes (big-endian) into one 32-bit word.
+  OUTPUT (BITOR (LSHIFT :B3 24) (BITOR (LSHIFT :B2 16) (BITOR (LSHIFT :B1 8) :B0)))
+END
+
+; --- Math utilities ---
+
+TO PRIMEP :N
+  ; Test if :N is prime by trial division.
+  IF :N < 2 [ OUTPUT "false ]
+  IF :N < 4 [ OUTPUT "true ]
+  IF (REMAINDER :N 2) = 0 [ OUTPUT "false ]
+  LOCAL "D
+  MAKE "D 3
+  REPEAT INT SQRT :N [
+    IF :D > SQRT :N [ OUTPUT "true ]
+    IF (REMAINDER :N :D) = 0 [ OUTPUT "false ]
+    MAKE "D :D + 2
+  ]
+  OUTPUT "true
+END
+
+TO NPRIMES :N
+  ; Output a list of the first :N prime numbers.
+  LOCAL [P C LST]
+  MAKE "LST []
+  MAKE "C 2
+  MAKE "P 0
+  WHILE [:P < :N] [
+    IF PRIMEP :C [
+      MAKE "LST LPUT :C :LST
+      MAKE "P :P + 1
+    ]
+    MAKE "C :C + 1
+  ]
+  OUTPUT :LST
+END
+
+TO FRAC32 :X
+  ; Output the first 32 bits of the fractional part of :X
+  ; as an integer: floor(frac(X) * 2^32), built via MKW.
+  LOCALMAKE "F :X - INT :X
+  LOCALMAKE "B3 INT :F * 256
+  LOCALMAKE "F (:F * 256) - :B3
+  LOCALMAKE "B2 INT :F * 256
+  LOCALMAKE "F (:F * 256) - :B2
+  LOCALMAKE "B1 INT :F * 256
+  LOCALMAKE "F (:F * 256) - :B1
+  LOCALMAKE "B0 INT :F * 256
+  OUTPUT MKW :B3 :B2 :B1 :B0
+END
+
+; --- Formatting ---
+
+TO HEX8 :N
+  ; Format a 32-bit word as an 8-character lowercase hex string.
+  LOCAL [S V D]
+  MAKE "S "||
+  MAKE "V :N
+  REPEAT 8 [
+    MAKE "D BITAND :V 15
+    IFELSE :D < 10 [
+      MAKE "S (WORD CHAR (:D + 48) :S)
+    ] [
+      MAKE "S (WORD CHAR (:D + 87) :S)
+    ]
+    MAKE "V LSHIFT :V -4
+  ]
+  OUTPUT :S
+END

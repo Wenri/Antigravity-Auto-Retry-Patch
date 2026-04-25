@@ -6,37 +6,13 @@
 ;   PRINT SHA256 "abc
 ;   ; -> ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 ;
-; Notes:
-;   - UCBLogo integer parser limit is about 2^29, so all
-;     32-bit constants are built from byte components.
-;   - REMAINDER requires and produces integers, keeping
-;     values compatible with bitwise operations.
-;   - Performance: expect seconds per hash (educational).
-;   - UCBLogo variables are case-insensitive.
+; Depends on: lib.lg (W32, ROTR, SHR, W32.ADD, MKW,
+;             PRIMEP, NPRIMES, FRAC32, HEX8)
 ; ========================================================
 
-; --- Layer 1: 32-bit word primitives ---
+LOAD "lib.lg
 
-TO W32 :N
-  ; Clamp to unsigned 32-bit via REMAINDER.
-  LOCALMAKE "R REMAINDER :N (LSHIFT 1 32)
-  IF :R < 0 [ OUTPUT :R + (LSHIFT 1 32) ]
-  OUTPUT :R
-END
-
-TO ROTR :X :N
-  OUTPUT W32 BITOR (LSHIFT :X (0 - :N)) (LSHIFT :X (32 - :N))
-END
-
-TO SHR :X :N
-  OUTPUT LSHIFT :X (0 - :N)
-END
-
-TO W32.ADD :A :B
-  OUTPUT W32 (:A + :B)
-END
-
-; --- Layer 2: SHA-256 round functions ---
+; --- SHA-256 round functions ---
 
 TO CH :E :F :G
   OUTPUT BITXOR (BITAND :E :F) (BITAND (W32 BITNOT :E) :G)
@@ -62,56 +38,7 @@ TO SSIG1 :X
   OUTPUT (BITXOR ROTR :X 17 (BITXOR ROTR :X 19 SHR :X 10))
 END
 
-; --- Layer 3: Constants ---
-
-TO MKW :B3 :B2 :B1 :B0
-  OUTPUT (BITOR (LSHIFT :B3 24) (BITOR (LSHIFT :B2 16) (BITOR (LSHIFT :B1 8) :B0)))
-END
-
-TO PRIMEP :N
-  ; Test if :N is prime by trial division.
-  IF :N < 2 [ OUTPUT "false ]
-  IF :N < 4 [ OUTPUT "true ]
-  IF (REMAINDER :N 2) = 0 [ OUTPUT "false ]
-  LOCAL "D
-  MAKE "D 3
-  REPEAT INT SQRT :N [
-    IF :D > SQRT :N [ OUTPUT "true ]
-    IF (REMAINDER :N :D) = 0 [ OUTPUT "false ]
-    MAKE "D :D + 2
-  ]
-  OUTPUT "true
-END
-
-TO NPRIMES :N
-  ; Output a list of the first :N prime numbers.
-  LOCAL [P C LST]
-  MAKE "LST []
-  MAKE "C 2
-  MAKE "P 0
-  WHILE [:P < :N] [
-    IF PRIMEP :C [
-      MAKE "LST LPUT :C :LST
-      MAKE "P :P + 1
-    ]
-    MAKE "C :C + 1
-  ]
-  OUTPUT :LST
-END
-
-TO FRAC32 :X
-  ; Output the first 32 bits of the fractional part of :X
-  ; as an integer: floor(frac(X) * 2^32), built via MKW.
-  LOCALMAKE "F :X - INT :X
-  LOCALMAKE "B3 INT :F * 256
-  LOCALMAKE "F (:F * 256) - :B3
-  LOCALMAKE "B2 INT :F * 256
-  LOCALMAKE "F (:F * 256) - :B2
-  LOCALMAKE "B1 INT :F * 256
-  LOCALMAKE "F (:F * 256) - :B1
-  LOCALMAKE "B0 INT :F * 256
-  OUTPUT MKW :B3 :B2 :B1 :B0
-END
+; --- Constants (derived from primes) ---
 
 TO SHA.K
   ; K[i] = floor(frac(cbrt(prime_i)) * 2^32) for the first 64 primes.
@@ -139,7 +66,7 @@ TO SHA.H0
   OUTPUT :H0
 END
 
-; --- Layer 4: Message preprocessing ---
+; --- Message preprocessing ---
 
 TO MSG.TO.BYTES :MSG
   IF EMPTYP :MSG [ OUTPUT [] ]
@@ -176,7 +103,7 @@ TO SHA.BLOCK.WORDS :BLK
   OUTPUT :WRD
 END
 
-; --- Layer 5: Core compression ---
+; --- Core compression ---
 
 TO SHA.EXPAND :BW
   ; Build full 64-entry message schedule from 16-word block array.
@@ -240,23 +167,7 @@ TO SHA.COMPRESS :WS :KT :HV
   SETITEM 8 :HV W32.ADD ITEM 8 :HV :vh
 END
 
-; --- Layer 6: Top-level API and output ---
-
-TO HEX8 :N
-  LOCAL [S V D]
-  MAKE "S "||
-  MAKE "V :N
-  REPEAT 8 [
-    MAKE "D BITAND :V 15
-    IFELSE :D < 10 [
-      MAKE "S (WORD CHAR (:D + 48) :S)
-    ] [
-      MAKE "S (WORD CHAR (:D + 87) :S)
-    ]
-    MAKE "V LSHIFT :V -4
-  ]
-  OUTPUT :S
-END
+; --- Top-level API ---
 
 TO SHA.TAKE64 :LST
   LOCAL [R L]
