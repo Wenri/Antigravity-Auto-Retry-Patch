@@ -11,7 +11,6 @@
 ;   32-bit arithmetic:    W32, ROTR, SHR, W32.ADD
 ;   Math:                 PRIMEP, NPRIMES, FRAC32
 ;   Formatting:           HEXN, HEX8
-;   Base64:               B64.ENCODE
 ; ========================================================
 
 ; --- Word / List utilities ---
@@ -163,46 +162,4 @@ END
 
 TO HEX8 :N
   OUTPUT HEXN 8 :N
-END
-
-; --- Base64 encoding ---
-
-TO B64.CHAR :V
-  ; Map 6-bit value (0-63) to base64 character.
-  OUTPUT ITEM :V + 1 "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/
-END
-
-TO B64.TRIPLE :B1 :B2 :B3
-  ; Encode 3 bytes into 4 base64 chars.
-  LOCALMAKE "V (:B1 * 65536) + (:B2 * 256) + :B3
-  OUTPUT (WORD B64.CHAR INT :V / 262144 ~
-              B64.CHAR REMAINDER INT :V / 4096 64 ~
-              B64.CHAR REMAINDER INT :V / 64 64 ~
-              B64.CHAR REMAINDER :V 64)
-END
-
-TO B64.ENCODE :BYTES
-  ; Base64-encode a list of bytes (RFC 4648).
-  OUTPUT B64.GO :BYTES "||
-END
-
-TO B64.GO :BYTES :ACC
-  IF EMPTYP :BYTES [ OUTPUT :ACC ]
-  IF (COUNT :BYTES) = 1 [
-    LOCALMAKE "V (FIRST :BYTES) * 16
-    OUTPUT (WORD :ACC ~
-      B64.CHAR INT :V / 64 ~
-      B64.CHAR REMAINDER :V 64 ~
-      "==)
-  ]
-  IF (COUNT :BYTES) = 2 [
-    LOCALMAKE "V ((FIRST :BYTES) * 256 + FIRST BF :BYTES) * 4
-    OUTPUT (WORD :ACC ~
-      B64.CHAR INT :V / 4096 ~
-      B64.CHAR REMAINDER INT :V / 64 64 ~
-      B64.CHAR REMAINDER :V 64 ~
-      "=)
-  ]
-  OUTPUT B64.GO BF BF BF :BYTES ~
-    (WORD :ACC B64.TRIPLE FIRST :BYTES FIRST BF :BYTES FIRST BF BF :BYTES)
 END
