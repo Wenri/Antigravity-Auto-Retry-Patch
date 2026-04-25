@@ -6,7 +6,7 @@
 ;   PRINT SHA256 "abc
 ;   ; -> ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
 ;
-; Depends on: lib.lg (W32, ROTR, SHR, W32.ADD, MKW,
+; Depends on: lib.lg (W32, ROTR, SHR, W32.ADD,
 ;             PRIMEP, NPRIMES, FRAC32, HEX8)
 ; ========================================================
 
@@ -96,7 +96,9 @@ TO SHA.BLOCK.WORDS :BLK
   MAKE "L :BLK
   MAKE "J 1
   REPEAT 16 [
-    SETITEM :J :WRD MKW FIRST :L FIRST BF :L FIRST BF BF :L FIRST BF BF BF :L
+    SETITEM :J :WRD (BITOR (LSHIFT FIRST :L 24) ~
+      (BITOR (LSHIFT FIRST BF :L 16) ~
+        (BITOR (LSHIFT FIRST BF BF :L 8) FIRST BF BF BF :L)))
     MAKE "L BF BF BF BF :L
     MAKE "J :J + 1
   ]

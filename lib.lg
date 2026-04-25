@@ -8,7 +8,7 @@
 ;                         SH.QUOTE, STRIP.PAD, WRITE.LINES
 ;   File utilities:       CHECK.FILE
 ;   Combinator:           Y
-;   32-bit arithmetic:    W32, ROTR, SHR, W32.ADD, MKW
+;   32-bit arithmetic:    W32, ROTR, SHR, W32.ADD
 ;   Math:                 PRIMEP, NPRIMES, FRAC32
 ;   Formatting:           HEX8
 ; ========================================================
@@ -89,10 +89,7 @@ TO W32.ADD :A :B
   OUTPUT W32 (:A + :B)
 END
 
-TO MKW :B3 :B2 :B1 :B0
-  ; Pack 4 bytes (big-endian) into one 32-bit word.
-  OUTPUT (BITOR (LSHIFT :B3 24) (BITOR (LSHIFT :B2 16) (BITOR (LSHIFT :B1 8) :B0)))
-END
+
 
 ; --- Math utilities ---
 
