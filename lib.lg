@@ -97,48 +97,41 @@ END
 ; --- Math utilities ---
 
 TO PRIMEP :N
-  ; Test if :N is prime by trial division.
+  ; Test if :N is prime by trial division (tail-recursive).
   IF :N < 2 [ OUTPUT "false ]
   IF :N < 4 [ OUTPUT "true ]
   IF (REMAINDER :N 2) = 0 [ OUTPUT "false ]
-  LOCAL "D
-  MAKE "D 3
-  REPEAT INT SQRT :N [
-    IF :D > SQRT :N [ OUTPUT "true ]
-    IF (REMAINDER :N :D) = 0 [ OUTPUT "false ]
-    MAKE "D :D + 2
-  ]
-  OUTPUT "true
+  OUTPUT PRIMEP.D :N 3
+END
+
+TO PRIMEP.D :N :D
+  IF :D * :D > :N [ OUTPUT "true ]
+  IF (REMAINDER :N :D) = 0 [ OUTPUT "false ]
+  OUTPUT PRIMEP.D :N :D + 2
 END
 
 TO NPRIMES :N
-  ; Output a list of the first :N prime numbers.
-  LOCAL [P C LST]
-  MAKE "LST []
-  MAKE "C 2
-  MAKE "P 0
-  WHILE [:P < :N] [
-    IF PRIMEP :C [
-      MAKE "LST LPUT :C :LST
-      MAKE "P :P + 1
-    ]
-    MAKE "C :C + 1
+  ; Output a list of the first :N prime numbers (tail-recursive).
+  OUTPUT NPRIMES.GO :N 2 []
+END
+
+TO NPRIMES.GO :N :C :ACC
+  IF :N = 0 [ OUTPUT :ACC ]
+  IFELSE PRIMEP :C [
+    OUTPUT NPRIMES.GO :N - 1 :C + 1 LPUT :C :ACC
+  ] [
+    OUTPUT NPRIMES.GO :N :C + 1 :ACC
   ]
-  OUTPUT :LST
 END
 
 TO FRAC32 :X
-  ; Output the first 32 bits of the fractional part of :X
-  ; as an integer: floor(frac(X) * 2^32), built via MKW.
-  LOCALMAKE "F :X - INT :X
-  LOCALMAKE "B3 INT :F * 256
-  LOCALMAKE "F (:F * 256) - :B3
-  LOCALMAKE "B2 INT :F * 256
-  LOCALMAKE "F (:F * 256) - :B2
-  LOCALMAKE "B1 INT :F * 256
-  LOCALMAKE "F (:F * 256) - :B1
-  LOCALMAKE "B0 INT :F * 256
-  OUTPUT MKW :B3 :B2 :B1 :B0
+  ; First 32 bits of fractional part of :X via CASCADE.
+  ; Two state vars: ?1 = byte list, ?2 = remaining fraction.
+  OUTPUT APPLY "MKW (CASCADE 4 ~
+    [LPUT INT (?2 * 256) ?1] ~
+    [] ~
+    [(?2 * 256) - INT (?2 * 256)] ~
+    (:X - INT :X))
 END
 
 ; --- Formatting ---
