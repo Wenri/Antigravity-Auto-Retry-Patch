@@ -110,22 +110,25 @@ END
 TO SHA.EXPAND :BW
   ; Build full 64-entry message schedule from 16-word block array.
   LOCALMAKE "WS ARRAY 64
-  LOCAL [J I S1 S0 V]
-  MAKE "J 1
-  REPEAT 16 [
-    SETITEM :J :WS ITEM :J :BW
-    MAKE "J :J + 1
-  ]
-  MAKE "I 17
-  REPEAT 48 [
-    MAKE "S1 SSIG1 ITEM (:I - 2) :WS
-    MAKE "S0 SSIG0 ITEM (:I - 15) :WS
-    MAKE "V W32.ADD :S1 ITEM (:I - 7) :WS
-    MAKE "V W32.ADD :V W32.ADD :S0 ITEM (:I - 16) :WS
-    SETITEM :I :WS :V
-    MAKE "I :I + 1
-  ]
+  SHA.COPY16 :BW :WS 1
+  SHA.FILL48 :WS 17
   OUTPUT :WS
+END
+
+TO SHA.COPY16 :BW :WS :I
+  IF :I > 16 [ STOP ]
+  SETITEM :I :WS ITEM :I :BW
+  SHA.COPY16 :BW :WS (:I + 1)
+END
+
+TO SHA.FILL48 :WS :I
+  IF :I > 64 [ STOP ]
+  SETITEM :I :WS W32.ADD W32.ADD W32.ADD ~
+    SSIG1 ITEM (:I - 2) :WS ~
+    ITEM (:I - 7) :WS ~
+    SSIG0 ITEM (:I - 15) :WS ~
+    ITEM (:I - 16) :WS
+  SHA.FILL48 :WS (:I + 1)
 END
 
 TO SHA.ROUND :A :B :C :D :E :F :G :H :WS :KT :I
