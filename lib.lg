@@ -121,14 +121,21 @@ TO NPRIMES :N
 END
 
 TO NPRIMES.GO :N :C :S :ACC
-  ; :C walks 5,7,11,13,... via step :S alternating 2/4.
-  ; Candidates are coprime to 6, so PRIMEP.D suffices.
+  ; :C walks the wheel; trial-divide by known primes in :ACC.
   IF :N = 0 [ OUTPUT :ACC ]
-  IFELSE PRIMEP.D :C 5 2 [
+  IFELSE DIVIDES.NONE :C :ACC [
     OUTPUT NPRIMES.GO :N - 1 :C + :S 6 - :S LPUT :C :ACC
   ] [
     OUTPUT NPRIMES.GO :N :C + :S 6 - :S :ACC
   ]
+END
+
+TO DIVIDES.NONE :N :PRIMES
+  ; True if no prime in :PRIMES divides :N (stops at sqrt).
+  IF EMPTYP :PRIMES [ OUTPUT "true ]
+  IF (FIRST :PRIMES) * (FIRST :PRIMES) > :N [ OUTPUT "true ]
+  IF (REMAINDER :N FIRST :PRIMES) = 0 [ OUTPUT "false ]
+  OUTPUT DIVIDES.NONE :N BF :PRIMES
 END
 
 TO FRAC32 :X
