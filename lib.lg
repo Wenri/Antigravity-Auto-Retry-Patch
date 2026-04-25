@@ -113,16 +113,21 @@ TO PRIMEP.D :N :D :S
 END
 
 TO NPRIMES :N
-  ; Output a list of the first :N prime numbers (tail-recursive).
-  OUTPUT NPRIMES.GO :N 2 []
+  ; First :N primes via 6k+/-1 wheel (tail-recursive).
+  IF :N < 1 [ OUTPUT [] ]
+  IF :N = 1 [ OUTPUT [2] ]
+  IF :N = 2 [ OUTPUT [2 3] ]
+  OUTPUT NPRIMES.GO :N - 2 5 2 [2 3]
 END
 
-TO NPRIMES.GO :N :C :ACC
+TO NPRIMES.GO :N :C :S :ACC
+  ; :C walks 5,7,11,13,... via step :S alternating 2/4.
+  ; Candidates are coprime to 6, so PRIMEP.D suffices.
   IF :N = 0 [ OUTPUT :ACC ]
-  IFELSE PRIMEP :C [
-    OUTPUT NPRIMES.GO :N - 1 :C + 1 LPUT :C :ACC
+  IFELSE PRIMEP.D :C 5 2 [
+    OUTPUT NPRIMES.GO :N - 1 :C + :S 6 - :S LPUT :C :ACC
   ] [
-    OUTPUT NPRIMES.GO :N :C + 1 :ACC
+    OUTPUT NPRIMES.GO :N :C + :S 6 - :S :ACC
   ]
 END
 
