@@ -43,19 +43,15 @@ TO STRIP.PAD :W
   OUTPUT :W
 END
 
-TO Y [:F] 1
+TO Y :F
   ; Fixed-point combinator via templates.
-  ; FIRST :F = template, :F = [template args...].
-  ; APPLY passes ?1 = template (self), ?2.. = args.
+  ; FIRST :F = [template].
   ;
-  ; Examples:
-  ;   MAKE "FACT [IFELSE ?2 = 0 [1] [?2 * Y ?1 ?2 - 1]]
-  ;   Y :FACT 5   ; → 120
+  ; Code-is-data example:
+  ;   PRINT INVOKE Y [[N F] IFELSE :N=0 [1] [:N * INVOKE :F :N-1]] 10
   ;
-  ;   MAKE "GCD [IFELSE ?3 = 0 [?2] [(Y ?1 ?3 REMAINDER ?2 ?3)]]
-  ;   (Y :GCD 12 8)   ; → 4
-  ;
-  OUTPUT APPLY FIRST :F :F
+  LOCALMAKE "S MAP [WORD "? #] BL FIRST :F
+  OUTPUT `[( INVOKE ,:F ,@ :S , [`[( INVOKE Y ,:F ,@ :S )]] )]
 END
 
 TO WRITE.LINES :FILE :LINES
