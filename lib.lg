@@ -97,17 +97,19 @@ END
 ; --- Math utilities ---
 
 TO PRIMEP :N
-  ; Test if :N is prime by trial division (tail-recursive).
+  ; Test if :N is prime (6k+/-1 wheel, tail-recursive).
   IF :N < 2 [ OUTPUT "false ]
   IF :N < 4 [ OUTPUT "true ]
   IF (REMAINDER :N 2) = 0 [ OUTPUT "false ]
-  OUTPUT PRIMEP.D :N 3
+  IF (REMAINDER :N 3) = 0 [ OUTPUT "false ]
+  OUTPUT PRIMEP.D :N 5 2
 END
 
-TO PRIMEP.D :N :D
+TO PRIMEP.D :N :D :S
+  ; :S alternates 2,4,2,4,... giving candidates 5,7,11,13,17,19,...
   IF :D * :D > :N [ OUTPUT "true ]
   IF (REMAINDER :N :D) = 0 [ OUTPUT "false ]
-  OUTPUT PRIMEP.D :N :D + 2
+  OUTPUT PRIMEP.D :N :D + :S 6 - :S
 END
 
 TO NPRIMES :N
