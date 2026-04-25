@@ -23,9 +23,21 @@ TO FLATTEN :X
   OUTPUT WORD FLATTEN FIRST :X FLATTEN BUTFIRST :X
 END
 
-TO JOIN.PIPE :CMDS
+TO JOIN.WITH :SEP :CMDS
+  ; Join list-of-lists with :SEP between them.
   IF EQUALP COUNT :CMDS 1 [ OUTPUT FIRST :CMDS ]
-  OUTPUT (SE FIRST :CMDS "|\|| JOIN.PIPE BUTFIRST :CMDS)
+  OUTPUT (SE FIRST :CMDS :SEP JOIN.WITH :SEP BUTFIRST :CMDS)
+END
+
+TO JOIN.PIPE :CMDS
+  OUTPUT JOIN.WITH "|\|| :CMDS
+END
+
+TO UNWORDS :LST
+  ; Join list into one word with spaces: [a b c] → |a b c|
+  IF EMPTYP :LST [ OUTPUT " ]
+  IF EMPTYP BUTFIRST :LST [ OUTPUT FIRST :LST ]
+  OUTPUT (WORD FIRST :LST "| | UNWORDS BUTFIRST :LST)
 END
 
 TO STRIP.PAD :W
@@ -67,13 +79,13 @@ TO QUEUE.CHECKSUM :PROD :TMP.HTML
   IF NOT CHECK.FILE :PROD [ STOP ]
 
   LOCALMAKE "HASH STRIP.PAD FLATTEN SHELL JOIN.PIPE (LIST ~
-    (SE "cat :TMP.HTML) ~
+    (SE [cat] :TMP.HTML) ~
     [openssl dgst -sha256 -binary] ~
     [base64])
 
   ; jq output needs "w — JSON contains {, }, [ which confuse READLIST.
   LOCALMAKE "JQ_OUT (SHELL ~
-    (SE "jq "--arg "h (WORD "' :HASH "') ~
+    (SE [jq --arg h] :HASH ~
         "|'.checksums["vs/code/electron-browser/workbench/workbench.html"] = $h'| ~
         :PROD) ~
     "w)
@@ -82,16 +94,16 @@ TO QUEUE.CHECKSUM :PROD :TMP.HTML
   MAKE "WRITES LPUT (LIST :PROD "|/tmp/prod.json|) :WRITES
 END
 
-TO BUILD.CP :WRITES
-  ; Recursively build "cp src dest && cp src dest && ... echo Done'"
-  IF EMPTYP :WRITES [ OUTPUT "|echo Done'| ]
-  OUTPUT (WORD "|cp | LAST FIRST :WRITES "| | FIRST FIRST :WRITES "| && | BUILD.CP BUTFIRST :WRITES)
+TO BUILD.CMD :WRITES
+  ; Convert write-pairs to [cp src dest], join with &&.
+  IF EMPTYP :WRITES [ OUTPUT [echo Done] ]
+  OUTPUT (SE [cp] LAST FIRST :WRITES FIRST FIRST :WRITES [&&] BUILD.CMD BUTFIRST :WRITES)
 END
 
 TO ELEVATE.AND.WRITE :WRITES
   IF EMPTYP :WRITES [ STOP ]
   PRINT [!!! The turtle is requesting sudo elevation !!!]
-  IGNORE SHELL (WORD "|sudo sh -c '| BUILD.CP :WRITES)
+  IGNORE SHELL (SE [sudo sh -c] (WORD "' UNWORDS BUILD.CMD :WRITES "'))
 END
 
 TO PATCH.FLOW :MODE :WB :BAK :PROD :PRODBAK
@@ -107,9 +119,9 @@ TO PATCH.FLOW :MODE :WB :BAK :PROD :PRODBAK
   WRITE.LINES "|/tmp/payload.js| (GENERATE.INJECTION :MODE)
 
   LOCALMAKE "HTML.TMP "|/tmp/workbench.html|
-  IGNORE SHELL (SE "cp :WB :HTML.TMP)
+  IGNORE SHELL (SE [cp] :WB :HTML.TMP)
   LOCALMAKE "SED.ARG (WORD "|'/<\\/body>/r /tmp/payload.js'|)
-  IGNORE SHELL (SE "sed "-i "-e :SED.ARG :HTML.TMP)
+  IGNORE SHELL (SE [sed -i -e] :SED.ARG :HTML.TMP)
 
   MAKE "WRITES LPUT (LIST :WB :HTML.TMP) :WRITES
   QUEUE.CHECKSUM :PROD :HTML.TMP
