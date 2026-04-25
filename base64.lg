@@ -16,13 +16,17 @@ TO B64.CHAR :V
   OUTPUT ITEM :V + 1 "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/
 END
 
-TO B64.TRIPLE :B1 :B2 :B3
-  ; Encode 3 bytes into 4 base64 chars.
+TO B64.GROUP :BYTES
+  ; Encode 1-3 bytes into 4 base64 chars, padding with = as needed.
+  LOCALMAKE "N COUNT :BYTES
+  LOCALMAKE "B1 FIRST :BYTES
+  LOCALMAKE "B2 IFELSE :N > 1 [FIRST BF :BYTES] [0]
+  LOCALMAKE "B3 IFELSE :N > 2 [FIRST BF BF :BYTES] [0]
   LOCALMAKE "V (:B1 * 65536) + (:B2 * 256) + :B3
   OUTPUT (WORD B64.CHAR INT :V / 262144 ~
               B64.CHAR REMAINDER INT :V / 4096 64 ~
-              B64.CHAR REMAINDER INT :V / 64 64 ~
-              B64.CHAR REMAINDER :V 64)
+              IFELSE :N > 1 [B64.CHAR REMAINDER INT :V / 64 64] ["=] ~
+              IFELSE :N > 2 [B64.CHAR REMAINDER :V 64] ["=])
 END
 
 TO B64.ENCODE :BYTES
@@ -30,18 +34,11 @@ TO B64.ENCODE :BYTES
   OUTPUT ~
     (INVOKE Y [[B A SELF] ~
       IFELSE EMPTYP :B [:A] [ ~
-      IFELSE (COUNT :B) = 1 [ ~
-        LOCALMAKE "V (FIRST :B) * 16 ~
-        (WORD :A B64.CHAR INT :V / 64 B64.CHAR REMAINDER :V 64 "==) ~
-      ] [ ~
-      IFELSE (COUNT :B) = 2 [ ~
-        LOCALMAKE "V ((FIRST :B) * 256 + FIRST BF :B) * 4 ~
-        (WORD :A B64.CHAR INT :V / 4096 ~
-          B64.CHAR REMAINDER INT :V / 64 64 ~
-          B64.CHAR REMAINDER :V 64 "=) ~
+      IFELSE (COUNT :B) < 3 [ ~
+        (WORD :A B64.GROUP :B) ~
       ] [ ~
         (INVOKE :SELF BF BF BF :B ~
-          (WORD :A B64.TRIPLE FIRST :B FIRST BF :B FIRST BF BF :B)) ~
-      ]]]] ~
+          (WORD :A B64.GROUP (LIST FIRST :B FIRST BF :B FIRST BF BF :B))) ~
+      ]]] ~
     :BYTES "||)
 END
