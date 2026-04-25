@@ -10,7 +10,8 @@
 ;   - SHELL without "w returns list-of-lists (READLIST per line)
 ; ========================================================
 
-LOAD "lib.lg
+LOAD "sha256.lg
+LOAD "base64.lg
 
 ; --- Application ---
 
@@ -37,10 +38,8 @@ END
 TO QUEUE.CHECKSUM :PROD :TMP.HTML
   IF NOT CHECK.FILE :PROD [ STOP ]
 
-  LOCALMAKE "HASH STRIP.PAD FLATTEN SHELL JOIN.PIPE (LIST ~
-    (SE [cat] :TMP.HTML) ~
-    [openssl dgst -sha256 -binary] ~
-    [base64])
+  ; Native SHA-256 + base64 (no shell-out)
+  LOCALMAKE "HASH B64.ENCODE SHA256.HASH FILE.BYTES :TMP.HTML
 
   ; jq output needs "w — JSON contains {, }, [ which confuse READLIST.
   LOCALMAKE "JQ_OUT (SHELL ~
