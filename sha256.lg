@@ -10,7 +10,7 @@
 ;             PRIMEP, NPRIMES, FRAC32, HEX8)
 ; ========================================================
 
-LOAD "lib.lg
+IF NOT DEFINEDP "W32 [ LOAD "lib.lg ]
 
 ; --- SHA-256 round functions ---
 

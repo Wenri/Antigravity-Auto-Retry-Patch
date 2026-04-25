@@ -9,7 +9,7 @@
 ; Depends on: lib.lg (Y)
 ; ========================================================
 
-LOAD "lib.lg
+IF NOT DEFINEDP "Y [ LOAD "lib.lg ]
 
 TO B64.CHAR :V
   ; Map 6-bit value (0-63) to base64 character.

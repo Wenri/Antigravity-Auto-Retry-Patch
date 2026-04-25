@@ -10,8 +10,8 @@
 ;   - SHELL without "w returns list-of-lists (READLIST per line)
 ; ========================================================
 
-LOAD "sha256.lg
-LOAD "base64.lg
+IF NOT DEFINEDP "SHA256 [ LOAD "sha256.lg ]
+IF NOT DEFINEDP "B64.ENCODE [ LOAD "base64.lg ]
 
 ; --- Application ---
 
