@@ -19,8 +19,7 @@ END
 TO FLATTEN :X
   ; Recursively concat all nested words: [[a b] [c d]] → "abcd"
   IF WORDP :X [ OUTPUT :X ]
-  IF EMPTYP :X [ OUTPUT " ]
-  OUTPUT WORD FLATTEN FIRST :X FLATTEN BUTFIRST :X
+  OUTPUT APPLY "WORD MAP "FLATTEN :X
 END
 
 TO JOIN.WITH :SEP :CMDS
@@ -33,17 +32,30 @@ TO JOIN.PIPE :CMDS
   OUTPUT JOIN.WITH "|\|| :CMDS
 END
 
-TO UNWORDS :LST
-  ; Join list into one word with spaces: [a b c] → |a b c|
-  IF EMPTYP :LST [ OUTPUT " ]
-  IF EMPTYP BUTFIRST :LST [ OUTPUT FIRST :LST ]
-  OUTPUT (WORD FIRST :LST "| | UNWORDS BUTFIRST :LST)
+TO SH.QUOTE :LST
+  ; Join with spaces and wrap in single quotes: [a b] → 'a b'
+  OUTPUT (WORD "' FLATTEN JOIN.WITH "| | :LST "')
 END
 
 TO STRIP.PAD :W
   IF EMPTYP :W [ OUTPUT :W ]
   IF EQUALP LAST :W "= [ OUTPUT STRIP.PAD BUTLAST :W ]
   OUTPUT :W
+END
+
+TO Y :F :ARG
+  ; Fixed-point combinator via templates.
+  ; :F is a template (Logo's lambda): ?1 = self, ?2 = arg.
+  ; MAP applies the template; FIRST extracts the single result.
+  ;
+  ; Examples:
+  ;   MAKE "FACT [IFELSE ?2 = 0 [1] [?2 * Y ?1 ?2 - 1]]
+  ;   Y :FACT 5   ; → 120
+  ;
+  ;   MAKE "FIB [IFELSE ?2 < 2 [?2] [(Y ?1 ?2 - 1) + (Y ?1 ?2 - 2)]]
+  ;   Y :FIB 10   ; → 55
+  ;
+  OUTPUT FIRST (MAP :F (LIST :F) (LIST :ARG))
 END
 
 TO WRITE.LINES :FILE :LINES
@@ -97,13 +109,14 @@ END
 TO BUILD.CMD :WRITES
   ; Convert write-pairs to [cp src dest], join with &&.
   IF EMPTYP :WRITES [ OUTPUT [echo Done] ]
-  OUTPUT (SE [cp] LAST FIRST :WRITES FIRST FIRST :WRITES [&&] BUILD.CMD BUTFIRST :WRITES)
+  LOCALMAKE "PAIR FIRST :WRITES
+  OUTPUT (SE [cp] LAST :PAIR FIRST :PAIR [&&] BUILD.CMD BUTFIRST :WRITES)
 END
 
 TO ELEVATE.AND.WRITE :WRITES
   IF EMPTYP :WRITES [ STOP ]
   PRINT [!!! The turtle is requesting sudo elevation !!!]
-  IGNORE SHELL (SE [sudo sh -c] (WORD "' UNWORDS BUILD.CMD :WRITES "'))
+  IGNORE SHELL (SE [sudo sh -c] SH.QUOTE BUILD.CMD :WRITES)
 END
 
 TO PATCH.FLOW :MODE :WB :BAK :PROD :PRODBAK
