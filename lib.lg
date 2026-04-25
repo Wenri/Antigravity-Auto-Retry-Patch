@@ -140,15 +140,15 @@ END
 
 TO FRAC32 :X
   ; First 32 bits of fractional part of :X via Y combinator.
-  ; FPUT builds [B3 B2 B1 B0] as recursion unwinds.
-  OUTPUT APPLY "MKW ~
-    (INVOKE Y [[N F SELF] ~
+  ; Accumulates the word directly via shift+OR, no intermediate list.
+  OUTPUT ~
+    (INVOKE Y [[N F ACC SELF] ~
       IFELSE :N = 0 ~
-        [[]] ~
-        [FPUT INT (:F * 256) ~
-          (INVOKE :SELF (:N - 1) ~
-            ((:F * 256) - INT (:F * 256)))]] ~
-    4 (:X - INT :X))
+        [:ACC] ~
+        [(INVOKE :SELF (:N - 1) ~
+          ((:F * 256) - INT (:F * 256)) ~
+          (BITOR (LSHIFT :ACC 8) INT (:F * 256)))]] ~
+    4 (:X - INT :X) 0)
 END
 
 ; --- Formatting ---
