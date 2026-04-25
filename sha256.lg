@@ -128,45 +128,30 @@ TO SHA.EXPAND :BW
   OUTPUT :WS
 END
 
+TO SHA.ROUND :A :B :C :D :E :F :G :H :WS :KT :I
+  ; Single SHA-256 round step (tail-recursive).
+  IF :I > 64 [ OUTPUT (LIST :A :B :C :D :E :F :G :H) ]
+  LOCALMAKE "T1 W32.ADD W32.ADD W32.ADD W32.ADD :H BSIG1 :E ~
+    CH :E :F :G ITEM :I :KT ITEM :I :WS
+  LOCALMAKE "T2 W32.ADD BSIG0 :A MAJ :A :B :C
+  OUTPUT SHA.ROUND (W32.ADD :T1 :T2) :A :B :C ~
+    (W32.ADD :D :T1) :E :F :G :WS :KT (:I + 1)
+END
+
 TO SHA.COMPRESS :WS :KT :HV
-  ; Run 64 rounds of SHA-256 compression on hash state HV.
-  ; HV is an 8-element array, modified in place.
-  LOCAL [va vb vc vd ve vf vg vh I T1 T2]
-  MAKE "va ITEM 1 :HV
-  MAKE "vb ITEM 2 :HV
-  MAKE "vc ITEM 3 :HV
-  MAKE "vd ITEM 4 :HV
-  MAKE "ve ITEM 5 :HV
-  MAKE "vf ITEM 6 :HV
-  MAKE "vg ITEM 7 :HV
-  MAKE "vh ITEM 8 :HV
-
-  MAKE "I 1
-  REPEAT 64 [
-    MAKE "T1 W32.ADD :vh BSIG1 :ve
-    MAKE "T1 W32.ADD :T1 CH :ve :vf :vg
-    MAKE "T1 W32.ADD :T1 ITEM :I :KT
-    MAKE "T1 W32.ADD :T1 ITEM :I :WS
-    MAKE "T2 W32.ADD BSIG0 :va MAJ :va :vb :vc
-    MAKE "vh :vg
-    MAKE "vg :vf
-    MAKE "vf :ve
-    MAKE "ve W32.ADD :vd :T1
-    MAKE "vd :vc
-    MAKE "vc :vb
-    MAKE "vb :va
-    MAKE "va W32.ADD :T1 :T2
-    MAKE "I :I + 1
-  ]
-
-  SETITEM 1 :HV W32.ADD ITEM 1 :HV :va
-  SETITEM 2 :HV W32.ADD ITEM 2 :HV :vb
-  SETITEM 3 :HV W32.ADD ITEM 3 :HV :vc
-  SETITEM 4 :HV W32.ADD ITEM 4 :HV :vd
-  SETITEM 5 :HV W32.ADD ITEM 5 :HV :ve
-  SETITEM 6 :HV W32.ADD ITEM 6 :HV :vf
-  SETITEM 7 :HV W32.ADD ITEM 7 :HV :vg
-  SETITEM 8 :HV W32.ADD ITEM 8 :HV :vh
+  ; Run 64 rounds and add result to hash state HV.
+  LOCALMAKE "R SHA.ROUND ~
+    ITEM 1 :HV ITEM 2 :HV ITEM 3 :HV ITEM 4 :HV ~
+    ITEM 5 :HV ITEM 6 :HV ITEM 7 :HV ITEM 8 :HV ~
+    :WS :KT 1
+  SETITEM 1 :HV W32.ADD ITEM 1 :HV ITEM 1 :R
+  SETITEM 2 :HV W32.ADD ITEM 2 :HV ITEM 2 :R
+  SETITEM 3 :HV W32.ADD ITEM 3 :HV ITEM 3 :R
+  SETITEM 4 :HV W32.ADD ITEM 4 :HV ITEM 4 :R
+  SETITEM 5 :HV W32.ADD ITEM 5 :HV ITEM 5 :R
+  SETITEM 6 :HV W32.ADD ITEM 6 :HV ITEM 6 :R
+  SETITEM 7 :HV W32.ADD ITEM 7 :HV ITEM 7 :R
+  SETITEM 8 :HV W32.ADD ITEM 8 :HV ITEM 8 :R
 END
 
 ; --- Top-level API ---
