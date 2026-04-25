@@ -150,12 +150,16 @@ END
 
 ; --- Formatting ---
 
-TO HEX8 :N
-  ; Format a 32-bit word as an 8-char lowercase hex string via Y.
+TO HEXN :DIGITS :N
+  ; Format :N as a zero-padded lowercase hex string of :DIGITS chars.
   OUTPUT ~
     (INVOKE Y [[I V S SELF] ~
       IFELSE :I = 0 [:S] ~
         [(INVOKE :SELF (:I - 1) (LSHIFT :V -4) ~
           WORD ITEM (BITAND :V 15) + 1 "0123456789abcdef :S)]] ~
-    8 :N "||)
+    :DIGITS :N "||)
+END
+
+TO HEX8 :N
+  OUTPUT HEXN 8 :N
 END
