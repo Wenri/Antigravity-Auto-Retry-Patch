@@ -106,23 +106,23 @@ TO SHA.BLOCK.WORDS :BLK
 END
 
 TO SHA.EXPAND :BW
-  ; Build 64-entry message schedule via two Y-loops.
-  LOCALMAKE "WS ARRAY 64
-  ; Copy first 16 words from block
-  IGNORE (INVOKE Y [[I SELF] ~
-    IFELSE :I > 16 [0] [ ~
-    SETITEM :I :WS ITEM :I :BW ~
-    (INVOKE :SELF (:I + 1))]] 1)
-  ; Fill entries 17-64 from previous entries
-  IGNORE (INVOKE Y [[I SELF] ~
-    IFELSE :I > 64 [0] [ ~
-    SETITEM :I :WS W32.ADD W32.ADD W32.ADD ~
-      SSIG1 ITEM (:I - 2) :WS ~
-      ITEM (:I - 7) :WS ~
-      SSIG0 ITEM (:I - 15) :WS ~
-      ITEM (:I - 16) :WS ~
-    (INVOKE :SELF (:I + 1))]] 17)
-  OUTPUT :WS
+  ; Build 64-entry message schedule as a list (no array mutation).
+  ; Step 1: copy 16 words from block array into a list
+  LOCALMAKE "INIT (INVOKE Y [[I ACC SELF] ~
+    IFELSE :I > 16 [:ACC] ~
+      [(INVOKE :SELF (:I + 1) LPUT ITEM :I :BW :ACC)]] ~
+    1 [])
+  ; Step 2: extend to 64 entries from previous values
+  OUTPUT (INVOKE Y [[I WS SELF] ~
+    IFELSE :I > 64 [:WS] ~
+      [(INVOKE :SELF (:I + 1) LPUT ~
+        W32.ADD W32.ADD W32.ADD ~
+          SSIG1 ITEM (:I - 2) :WS ~
+          ITEM (:I - 7) :WS ~
+          SSIG0 ITEM (:I - 15) :WS ~
+          ITEM (:I - 16) :WS ~
+        :WS)]] ~
+    17 :INIT)
 END
 
 TO SHA.COMPRESS :WS :KT :HV
