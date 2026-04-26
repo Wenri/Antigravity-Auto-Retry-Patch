@@ -1,25 +1,25 @@
 #!/usr/bin/env ucblogo
 
-; ========================================================
-; ANTIGRAVITY PATCHER - LOGO TURTLE EDITION
-; Run with: ucblogo applyAutoRetryContinueAllowPatch.lg
-;
-; Logo quirks to know:
-;   - |vbar| words need " prefix for data:  "|hello world|
-;   - | inside vbars must be escaped:       "|\|
-;   - shell without "w returns list-of-lists (readlist per line)
-; ========================================================
+;;;; ANTIGRAVITY PATCHER - LOGO TURTLE EDITION
+;;;; Run with: ucblogo applyAutoRetryContinueAllowPatch.lg
+;;;;
+;;;; Logo quirks to know:
+;;;;   - |vbar| words need " prefix for data:  "|hello world|
+;;;;   - | inside vbars must be escaped:       "|\|
+;;;;   - shell without "w returns list-of-lists (readlist per line)
 
 if not definedp "sha256.hash [
   load "sha256.lg]
 if not definedp "b64.encode [
   load "base64.lg]
 
-; --- application ---
+
+;;; application
 
 to find.workbench
   localmake "linux "|/opt/antigravity/resources/app/out/vs/code/electron-browser/workbench/workbench.html|
-  if check.file :linux [
+
+  if (check.file :linux) [
     output :linux]
   output "NULL
 end
@@ -34,62 +34,63 @@ to generate.injection :mode
     |    /* JS Injection Logic Omitted for Turtle Sanity */|
     |  }, 100);|
     |})();|
-    |</script>|
-    ]
+    |</script>|]
 end
 
 to queue.checksum :prod :tmp.html
-  if not check.file :prod [
+  if not (check.file :prod) [
     stop]
 
-  ; Native SHA-256 + base64 (no shell-out)
-  localmake "hash b64.encode sha256.hash file.bytes :tmp.html
+  ;; Native SHA-256 + base64 (no shell-out)
+  localmake "hash (b64.encode (sha256.hash (file.bytes :tmp.html)))
 
-  ; jq output needs "w -- JSON contains {, }, [ which confuse readlist.
+  ;; jq output needs "w -- JSON contains {, }, [ which confuse readlist.
   localmake "jq_out (shell
     (se [jq --arg h] :hash
         "|'.checksums[\"vs/code/electron-browser/workbench/workbench.html\"] = $h'|
         :prod)
     "w)
 
-  write.lines "|/tmp/prod.json| :jq_out
-  make "writes lput (list :prod "|/tmp/prod.json|") :writes
+  (write.lines "|/tmp/prod.json| :jq_out)
+  make "writes (lput (list :prod "|/tmp/prod.json|") :writes)
 end
 
 to build.cmd :writes
-  ; Convert write-pairs to [cp src dest], join with &&.
+  ;; Convert write-pairs to [cp src dest], join with &&.
   if emptyp :writes [
     output [echo Done]]
-  localmake "pair first :writes
-  output (se [cp] last :pair first :pair [&&] build.cmd butfirst :writes)
+  localmake "pair (first :writes)
+
+  output (se [cp] (last :pair) (first :pair) [&&] (build.cmd (butfirst :writes)))
 end
 
 to elevate.and.write :writes
   if emptyp :writes [
     stop]
   print [!!! The turtle is requesting sudo elevation !!!]
-  ignore shell (se [sudo sh -c] sh.quote build.cmd :writes)
+  ignore (shell (se [sudo sh -c] (sh.quote (build.cmd :writes))))
 end
 
 to patch.flow :mode :wb :bak :prod :prodbak
   make "writes []
 
-  ifelse check.file :bak [
+  ifelse (check.file :bak) [
     print [Clean backup found.]] [
     print [No backup found. Queueing backup...]
-    make "writes lput (list :bak :wb) :writes]
+    make "writes (lput (list :bak :wb) :writes)]
 
-  write.lines "|/tmp/payload.js| (generate.injection :mode)
+  (write.lines "|/tmp/payload.js| (generate.injection :mode))
 
   localmake "html.tmp "|/tmp/workbench.html|
-  ignore shell (se [cp] :wb :html.tmp)
+
+  ignore (shell (se [cp] :wb :html.tmp))
   localmake "sed.arg (word "|'/</\\/body>/r /tmp/payload.js'|")
-  ignore shell (se [sed -i -e] :sed.arg :html.tmp)
+  ignore (shell (se [sed -i -e] :sed.arg :html.tmp))
 
-  make "writes lput (list :wb :html.tmp) :writes
-  queue.checksum :prod :html.tmp
+  make "writes (lput (list :wb :html.tmp) :writes)
+  (queue.checksum :prod :html.tmp)
 
-  elevate.and.write :writes
+  (elevate.and.write :writes)
 end
 
 to main
@@ -97,7 +98,7 @@ to main
   print [ ANTIGRAVITY PATCHER - LOGO EDITION ]
   print [====================================]
 
-  localmake "wb find.workbench
+  localmake "wb (find.workbench)
 
   if equalp :wb "NULL [
     print [Error: Antigravity not installed!]
@@ -112,5 +113,5 @@ to main
   print [Patch complete. The turtle draws a square and rests.]
 end
 
-main
+(main)
 bye

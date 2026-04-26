@@ -1,48 +1,47 @@
-; ========================================================
-; lib.lg -- Reusable UCBLogo Primitives
-;
-; Usage:  load "lib.lg
-;
-; Contents:
-;   word/list utilities:  flatten, join.with, join.pipe,
-;                         sh.quote, strip.pad, write.lines
-;   file utilities:       check.file
-;   combinator:           y
-;   32-bit arithmetic:    w32, rotr, shr, w32.add
-;   math:                 primep, nprimes, frac32
-;   formatting:           hexn, hex8
-; ========================================================
+;;;; lib.lg -- Reusable UCBLogo Primitives
+;;;;
+;;;; Usage:  load "lib.lg
+;;;;
+;;;; Contents:
+;;;;   word/list utilities:  flatten, join.with, join.pipe,
+;;;;                         sh.quote, strip.pad, write.lines
+;;;;   file utilities:       check.file
+;;;;   combinator:           y
+;;;;   32-bit arithmetic:    w32, rotr, shr, w32.add
+;;;;   math:                 primep, nprimes, frac32
+;;;;   formatting:           hexn, hex8
 
-; --- word / list utilities ---
+
+;;; word / list utilities
 
 to flatten :x
-  ; Recursively concat all nested words: [[a b] [c d]] -> "abcd"
+  ;; Recursively concat all nested words: [[a b] [c d]] -> "abcd"
   if wordp :x [
     output :x]
-  output apply "word map "flatten :x
+  output (apply "word (map "flatten :x))
 end
 
 to join.with :sep :cmds
-  ; Join list-of-lists with :sep between them.
-  if equalp count :cmds 1 [
-    output first :cmds]
-  output (se first :cmds :sep join.with :sep butfirst :cmds)
+  ;; Join list-of-lists with :sep between them.
+  if equalp (count :cmds) 1 [
+    output (first :cmds)]
+  output (se (first :cmds) :sep (join.with :sep (butfirst :cmds)))
 end
 
 to join.pipe :cmds
-  output join.with "|\|| :cmds
+  output (join.with "|\|| :cmds)
 end
 
 to sh.quote :lst
-  ; Join with spaces and wrap in single quotes: [a b] -> 'a b'
-  output (word "' flatten join.with "| | :lst "')
+  ;; Join with spaces and wrap in single quotes: [a b] -> 'a b'
+  output (word "' (flatten (join.with "| | :lst)) "')
 end
 
 to strip.pad :w
   if emptyp :w [
     output :w]
-  if equalp last :w "= [
-    output strip.pad butlast :w]
+  if equalp (last :w) "= [
+    output (strip.pad (butlast :w))]
   output :w
 end
 
@@ -53,51 +52,57 @@ to write.lines :file :lines
   close :file
 end
 
-; --- file utilities ---
+
+;;; file utilities
 
 to check.file :filepath
-  output filep :filepath
+  output (filep :filepath)
 end
 
-; --- combinator ---
+
+;;; combinator
 
 to y :f
-  ; Fixed-point combinator via templates.
-  ; first :f = [template].
-  ;
-  ; Code-is-data example:
-  ;   print invoke y [[n f] ifelse :n=0 [1] [:n * invoke :f :n-1]] 10
-  ;
-  localmake "s map [word "? #] bl first :f
+  ;; Fixed-point combinator via templates.
+  ;; (first :f) = [template].
+  ;;
+  ;; Code-is-data example:
+  ;;   print (invoke y [[n f] ifelse :n=0 [1] [:n * invoke :f :n-1]] 10)
+  localmake "s (map [word "? #] (bl (first :f)))
+
   output `[( invoke ,:f ,@ :s , [`[( invoke y ,:f ,@ :s )]] )]
 end
 
-; --- 32-bit word primitives ---
+
+;;; 32-bit word primitives
 
 to w32 :n
-  ; Clamp to unsigned 32-bit via remainder.
-  localmake "r remainder :n (lshift 1 32)
+  ;; Clamp to unsigned 32-bit via remainder.
+  localmake "r (remainder :n (lshift 1 32))
+
   if :r < 0 [
     output :r + (lshift 1 32)]
   output :r
 end
 
 to rotr :x :n
-  output w32 bitor (lshift :x (0 - :n)) (lshift :x (32 - :n))
+  output (w32 (bitor (lshift :x (0 - :n))
+                     (lshift :x (32 - :n))))
 end
 
 to shr :x :n
-  output lshift :x (0 - :n)
+  output (lshift :x (0 - :n))
 end
 
 to w32.add :a :b
-  output w32 (:a + :b)
+  output (w32 (:a + :b))
 end
 
-; --- math utilities ---
+
+;;; math utilities
 
 to primep :n
-  ; Test if :n is prime (6k+/-1 wheel via y).
+  ;; Test if :n is prime (6k+/-1 wheel via y).
   if :n < 2 [
     output "false]
   if :n < 4 [
@@ -117,8 +122,8 @@ to primep :n
 end
 
 to nprimes :n
-  ; First :n primes via 6k+/-1 wheel (y combinator).
-  ; acc excludes [2 3] -- wheel guarantees coprimality, no dup checks.
+  ;; First :n primes via 6k+/-1 wheel (y combinator).
+  ;; acc excludes [2 3] -- wheel guarantees coprimality, no dup checks.
   if :n < 1 [
     output []]
   if :n = 1 [
@@ -130,41 +135,42 @@ to nprimes :n
       [[k c s acc self]
         ifelse :k = 0 [
           :acc] [
-          ifelse divides.none :c :acc [
-            (invoke :self :k - 1 :c + :s 6 - :s lput :c :acc)] [
+          ifelse (divides.none :c :acc) [
+            (invoke :self :k - 1 :c + :s 6 - :s (lput :c :acc))] [
             (invoke :self :k :c + :s 6 - :s :acc)]]]
       :n - 2 5 2 []))
 end
 
 to divides.none :n :primes
-  ; True if no prime in :primes divides :n (stops at sqrt).
+  ;; True if no prime in :primes divides :n (stops at sqrt).
   if emptyp :primes [
     output "true]
   if (first :primes) * (first :primes) > :n [
     output "true]
-  if (remainder :n first :primes) = 0 [
+  if (remainder :n (first :primes)) = 0 [
     output "false]
-  output divides.none :n bf :primes
+  output (divides.none :n (bf :primes))
 end
 
 to frac32 :x
-  ; First 32 bits of fractional part of :x via y combinator.
-  ; Accumulates the word directly via shift+or, no intermediate list.
+  ;; First 32 bits of fractional part of :x via y combinator.
+  ;; Accumulates the word directly via shift+or, no intermediate list.
   output (invoke y
     [[n f acc self]
       ifelse :n = 0 [
         :acc] [
         (invoke :self
           (:n - 1)
-          ((:f * 256) - int (:f * 256))
-          (bitor (lshift :acc 8) int (:f * 256)))]]
-    4 (:x - int :x) 0)
+          ((:f * 256) - (int (:f * 256)))
+          (bitor (lshift :acc 8) (int (:f * 256))))]]
+    4 (:x - (int :x)) 0)
 end
 
-; --- formatting ---
+
+;;; formatting
 
 to hexn :digits :n
-  ; Format :n as a zero-padded lowercase hex string of :digits chars.
+  ;; Format :n as a zero-padded lowercase hex string of :digits chars.
   output (invoke y
     [[i v s self]
       ifelse :i = 0 [
@@ -172,10 +178,10 @@ to hexn :digits :n
         (invoke :self
           (:i - 1)
           (lshift :v -4)
-          word item (bitand :v 15) + 1 "0123456789abcdef :s)]]
+          (word (item (bitand :v 15) + 1 "0123456789abcdef) :s))]]
     :digits :n "||)
 end
 
 to hex8 :n
-  output hexn 8 :n
+  output (hexn 8 :n)
 end
