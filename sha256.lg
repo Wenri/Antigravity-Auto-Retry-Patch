@@ -89,11 +89,10 @@ TO SHA.EXPAND :BW
   OUTPUT (INVOKE Y [[I WS SELF] ~
     IFELSE :I > 64 [:WS] ~
       [(INVOKE :SELF (:I + 1) LPUT ~
-        W32.ADD W32.ADD W32.ADD ~
-          SSIG1 ITEM (:I - 2) :WS ~
-          ITEM (:I - 7) :WS ~
-          SSIG0 ITEM (:I - 15) :WS ~
-          ITEM (:I - 16) :WS ~
+        W32 ((SSIG1 ITEM (:I - 2) :WS) ~
+          + (ITEM (:I - 7) :WS) ~
+          + (SSIG0 ITEM (:I - 15) :WS) ~
+          + (ITEM (:I - 16) :WS)) ~
         :WS)]] ~
     17 :BW)
 END
@@ -104,14 +103,21 @@ TO SHA.COMPRESS :WS :KT :HV
     (INVOKE Y [[A B C D E F G H I SELF] ~
       IFELSE :I > 64 ~
         [(LIST :A :B :C :D :E :F :G :H)] [ ~
-        LOCALMAKE "T1 W32.ADD W32.ADD W32.ADD W32.ADD :H BSIG1 :E ~
-          CH :E :F :G ITEM :I :KT ITEM :I :WS ~
-        LOCALMAKE "T2 W32.ADD BSIG0 :A MAJ :A :B :C ~
-        (INVOKE :SELF (W32.ADD :T1 :T2) :A :B :C ~
-          (W32.ADD :D :T1) :E :F :G (:I + 1))]] ~
+        LOCALMAKE "T1 W32 (:H + (BSIG1 :E) + (CH :E :F :G) ~
+          + (ITEM :I :KT) + (ITEM :I :WS)) ~
+        LOCALMAKE "T2 W32 ((BSIG0 :A) + (MAJ :A :B :C)) ~
+        (INVOKE :SELF W32 (:T1 + :T2) :A :B :C ~
+          W32 (:D + :T1) :E :F :G (:I + 1))]] ~
     ITEM 1 :HV ITEM 2 :HV ITEM 3 :HV ITEM 4 :HV ~
     ITEM 5 :HV ITEM 6 :HV ITEM 7 :HV ITEM 8 :HV 1)
-  OUTPUT (MAP [W32.ADD ?1 ?2] :HV :R)
+  OUTPUT (LIST W32 ((ITEM 1 :HV) + ITEM 1 :R) ~
+               W32 ((ITEM 2 :HV) + ITEM 2 :R) ~
+               W32 ((ITEM 3 :HV) + ITEM 3 :R) ~
+               W32 ((ITEM 4 :HV) + ITEM 4 :R) ~
+               W32 ((ITEM 5 :HV) + ITEM 5 :R) ~
+               W32 ((ITEM 6 :HV) + ITEM 6 :R) ~
+               W32 ((ITEM 7 :HV) + ITEM 7 :R) ~
+               W32 ((ITEM 8 :HV) + ITEM 8 :R))
 END
 
 ; --- Top-level API ---
@@ -131,14 +137,6 @@ END
 TO SHA.SPLIT.BLOCKS :PADDED
   IF EMPTYP :PADDED [ OUTPUT [] ]
   OUTPUT FPUT TAKEN 64 :PADDED SHA.SPLIT.BLOCKS DROPN 64 :PADDED
-END
-
-TO SHA.DIGEST :BLOCKS :FMT
-  ; Fold blocks into hash state via REDUCE. No mutable state.
-  LOCALMAKE "KT SHA.K
-  OUTPUT INVOKE :FMT ~
-    REDUCE [[HV BLK] SHA.COMPRESS SHA.EXPAND SHA.BLOCK.WORDS :BLK :KT :HV] ~
-      FPUT SHA.H0 :BLOCKS
 END
 
 TO W32.BYTES :W
@@ -167,6 +165,11 @@ END
 
 TO SHA256.HASH :BYTES
   ; SHA-256 hash a byte list, output as 32-byte list.
-  OUTPUT SHA.DIGEST SHA.SPLIT.BLOCKS SHA.PAD :BYTES ~
-    [[HV] MAP.SE [W32.BYTES ?] :HV]
+  LOCALMAKE "BLOCKS SHA.SPLIT.BLOCKS SHA.PAD :BYTES
+  LOCALMAKE "KT SHA.K
+  LOCALMAKE "HV SHA.H0
+  FOREACH :BLOCKS [
+    MAKE "HV SHA.COMPRESS SHA.EXPAND SHA.BLOCK.WORDS ? :KT :HV
+  ]
+  OUTPUT MAP.SE "W32.BYTES :HV
 END
