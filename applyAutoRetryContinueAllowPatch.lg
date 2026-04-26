@@ -10,17 +10,17 @@
 ;   - shell without "w returns list-of-lists (readlist per line)
 ; ========================================================
 
-if not definedp "sha256.hash ~
-  [load "sha256.lg]
-if not definedp "b64.encode ~
-  [load "base64.lg]
+if not definedp "sha256.hash [
+  load "sha256.lg]
+if not definedp "b64.encode [
+  load "base64.lg]
 
 ; --- application ---
 
 to find.workbench
   localmake "linux "|/opt/antigravity/resources/app/out/vs/code/electron-browser/workbench/workbench.html|
-  if check.file :linux ~
-    [output :linux]
+  if check.file :linux [
+    output :linux]
   output "NULL
 end
 
@@ -39,17 +39,17 @@ to generate.injection :mode
 end
 
 to queue.checksum :prod :tmp.html
-  if not check.file :prod ~
-    [stop]
+  if not check.file :prod [
+    stop]
 
   ; Native SHA-256 + base64 (no shell-out)
   localmake "hash b64.encode sha256.hash file.bytes :tmp.html
 
   ; jq output needs "w -- JSON contains {, }, [ which confuse readlist.
-  localmake "jq_out (shell ~
-    (se [jq --arg h] :hash ~
-        "|'.checksums[\"vs/code/electron-browser/workbench/workbench.html\"] = $h'| ~
-        :prod) ~
+  localmake "jq_out (shell
+    (se [jq --arg h] :hash
+        "|'.checksums[\"vs/code/electron-browser/workbench/workbench.html\"] = $h'|
+        :prod)
     "w)
 
   write.lines "|/tmp/prod.json| :jq_out
@@ -58,15 +58,15 @@ end
 
 to build.cmd :writes
   ; Convert write-pairs to [cp src dest], join with &&.
-  if emptyp :writes ~
-    [output [echo Done]]
+  if emptyp :writes [
+    output [echo Done]]
   localmake "pair first :writes
   output (se [cp] last :pair first :pair [&&] build.cmd butfirst :writes)
 end
 
 to elevate.and.write :writes
-  if emptyp :writes ~
-    [stop]
+  if emptyp :writes [
+    stop]
   print [!!! The turtle is requesting sudo elevation !!!]
   ignore shell (se [sudo sh -c] sh.quote build.cmd :writes)
 end
@@ -74,10 +74,10 @@ end
 to patch.flow :mode :wb :bak :prod :prodbak
   make "writes []
 
-  ifelse check.file :bak ~
-    [print [Clean backup found.]] ~
-    [print [No backup found. Queueing backup...] ~
-      make "writes lput (list :bak :wb) :writes]
+  ifelse check.file :bak [
+    print [Clean backup found.]] [
+    print [No backup found. Queueing backup...]
+    make "writes lput (list :bak :wb) :writes]
 
   write.lines "|/tmp/payload.js| (generate.injection :mode)
 
@@ -99,16 +99,16 @@ to main
 
   localmake "wb find.workbench
 
-  if equalp :wb "NULL ~
-    [print [Error: Antigravity not installed!] ~
-      stop]
+  if equalp :wb "NULL [
+    print [Error: Antigravity not installed!]
+    stop]
 
-  patch.flow "all :wb (word :wb "|.bak|") ~
-    "|/opt/antigravity/resources/app/product.json| ~
-    (word "|/opt/antigravity/resources/app/product.json| "|.bak|")
+  (patch.flow "all :wb (word :wb "|.bak|")
+    "|/opt/antigravity/resources/app/product.json|
+    (word "|/opt/antigravity/resources/app/product.json| "|.bak|"))
 
-  catch "error ~
-    [cs pendown repeat 4 [forward 100 right 90]]
+  catch "error [
+    cs pendown repeat 4 [forward 100 right 90]]
   print [Patch complete. The turtle draws a square and rests.]
 end
 

@@ -9,8 +9,8 @@
 ; Depends on: lib.lg (y)
 ; ========================================================
 
-if not definedp "y ~
-  [load "lib.lg]
+if not definedp "y [
+  load "lib.lg]
 
 to b64.char :v
   ; Map 6-bit value (0-63) to base64 character.
@@ -25,26 +25,25 @@ to b64.group [:bytes] 3
   localmake "b2 ifelse :n > 1 [first bf :bytes] [0]
   localmake "b3 ifelse :n > 2 [first bf bf :bytes] [0]
   localmake "v (:b1 * 65536) + (:b2 * 256) + :b3
-  output (word b64.char int :v / 262144 ~
-              b64.char remainder int :v / 4096 64 ~
-              ifelse :n > 1 ~
-                [b64.char remainder int :v / 64 64] ~
-                ["=] ~
-              ifelse :n > 2 ~
-                [b64.char remainder :v 64] ~
-                ["=])
+  output (word b64.char int :v / 262144
+              b64.char remainder int :v / 4096 64
+              ifelse :n > 1 [
+                b64.char remainder int :v / 64 64] [
+                "=]
+              ifelse :n > 2 [
+                b64.char remainder :v 64] [
+                "=])
 end
 
 to b64.encode :bytes
   ; Base64-encode a list of bytes (RFC 4648) via y combinator.
-  output ~
-    (invoke y ~
-      [[b a self] ~
-        ifelse emptyp :b ~
-          [:a] ~
-          [ifelse (count :b) < 3 ~
-            [(word :a apply "b64.group :b)] ~
-            [(invoke :self bf bf bf :b ~
-              (word :a b64.group first :b first bf :b first bf bf :b))]]] ~
-      :bytes "||)
+  output (invoke y
+    [[b a self]
+      ifelse emptyp :b [
+        :a] [
+        ifelse (count :b) < 3 [
+          (word :a apply "b64.group :b)] [
+          (invoke :self bf bf bf :b
+            (word :a b64.group first :b first bf :b first bf bf :b))]]]
+    :bytes "||)
 end
