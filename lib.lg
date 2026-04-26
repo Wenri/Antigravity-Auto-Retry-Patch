@@ -94,37 +94,28 @@ END
 ; --- Math utilities ---
 
 TO PRIMEP :N
-  ; Test if :N is prime (6k+/-1 wheel, tail-recursive).
+  ; Test if :N is prime (6k+/-1 wheel via Y).
   IF :N < 2 [ OUTPUT "false ]
   IF :N < 4 [ OUTPUT "true ]
   IF (REMAINDER :N 2) = 0 [ OUTPUT "false ]
   IF (REMAINDER :N 3) = 0 [ OUTPUT "false ]
-  OUTPUT PRIMEP.D :N 5 2
-END
-
-TO PRIMEP.D :N :D :S
-  ; :S alternates 2,4,2,4,... giving candidates 5,7,11,13,17,19,...
-  IF :D * :D > :N [ OUTPUT "true ]
-  IF (REMAINDER :N :D) = 0 [ OUTPUT "false ]
-  OUTPUT PRIMEP.D :N :D + :S 6 - :S
+  OUTPUT (INVOKE Y [[D S SELF] ~
+    IFELSE :D * :D > :N ["true] [ ~
+    IFELSE (REMAINDER :N :D) = 0 ["false] ~
+      [(INVOKE :SELF :D + :S 6 - :S)]]] 5 2)
 END
 
 TO NPRIMES :N
-  ; First :N primes via 6k+/-1 wheel (tail-recursive).
+  ; First :N primes via 6k+/-1 wheel (Y combinator).
   IF :N < 1 [ OUTPUT [] ]
   IF :N = 1 [ OUTPUT [2] ]
   IF :N = 2 [ OUTPUT [2 3] ]
-  OUTPUT NPRIMES.GO :N - 2 5 2 [2 3]
-END
-
-TO NPRIMES.GO :N :C :S :ACC
-  ; :C walks the wheel; trial-divide by known primes in :ACC.
-  IF :N = 0 [ OUTPUT :ACC ]
-  IFELSE DIVIDES.NONE :C :ACC [
-    OUTPUT NPRIMES.GO :N - 1 :C + :S 6 - :S LPUT :C :ACC
-  ] [
-    OUTPUT NPRIMES.GO :N :C + :S 6 - :S :ACC
-  ]
+  OUTPUT (INVOKE Y [[K C S ACC SELF] ~
+    IFELSE :K = 0 [:ACC] [ ~
+    IFELSE DIVIDES.NONE :C :ACC ~
+      [(INVOKE :SELF :K - 1 :C + :S 6 - :S LPUT :C :ACC)] ~
+      [(INVOKE :SELF :K :C + :S 6 - :S :ACC)]]] ~
+    :N - 2 5 2 [2 3])
 END
 
 TO DIVIDES.NONE :N :PRIMES
