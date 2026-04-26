@@ -42,7 +42,7 @@ end
 to b64.encode :bytes
   ;; Base64-encode a list of bytes (RFC 4648) via y combinator.
   output (invoke y
-    [[b a self]
+    [[self b a]
       ifelse emptyp :b
         [:a]
         [ifelse (count :b) < 3

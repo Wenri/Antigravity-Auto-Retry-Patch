@@ -60,13 +60,12 @@ end
 
 to y :f
   ;; Fixed-point combinator via templates.
-  ;; (first :f) = [template].
+  ;; (first (first :f)) = self parameter.
   ;;
   ;; Code-is-data example:
-  ;;   print (invoke y [[n f] ifelse :n=0 [1] [:n * invoke :f :n-1]] 10)
-  localmake "s (map [word "? #] (bl (first :f)))
-
-  output `[( invoke ,:f ,@ :s , [`[( invoke y ,:f ,@ :s )]] )]
+  ;;   print (invoke y [[f n] ifelse :n=0 [1] [:n * invoke :f :n-1]] 10)
+  localmake "s (map [word "? #] (bf (first :f)))
+  output `[(invoke ,:f ,[`[(invoke y ,:f ,@:s )]] ,@:s )]
 end
 
 
@@ -103,7 +102,7 @@ to primep :n
   if (remainder :n 2) = 0 [output "false]
   if (remainder :n 3) = 0 [output "false]
   output (invoke y
-    [[d s self]
+    [[self d s]
       ifelse :d * :d > :n
         ["true]
         [ifelse (remainder :n :d) = 0
@@ -120,7 +119,7 @@ to nprimes :n
   if :n = 2 [output [2 3]]
   output (se [2 3]
     (invoke y
-      [[k c s acc self]
+      [[self k c s acc]
         ifelse :k = 0
           [:acc]
           [ifelse (divides.none :c :acc)
@@ -141,7 +140,7 @@ to frac32 :x
   ;; First 32 bits of fractional part of :x via y combinator.
   ;; Accumulates the word directly via shift+or, no intermediate list.
   output (invoke y
-    [[n f acc self]
+    [[self n f acc]
       ifelse :n = 0
         [:acc]
         [(invoke :self
@@ -157,7 +156,7 @@ end
 to hexn :digits :n
   ;; Format :n as a zero-padded lowercase hex string of :digits chars.
   output (invoke y
-    [[i v s self]
+    [[self i v s]
       ifelse :i = 0
         [:s]
         [(invoke :self
