@@ -166,18 +166,15 @@ to file.bytes :filepath
   ;; Read a file as a list of bytes.
   openread :filepath
   setread  :filepath
-  localmake "result (file.read.lines)
+  localmake "result (invoke y
+    [[line self]
+      ifelse listp :line
+        [[]]
+        [(se (msg.to.bytes :line) 10 (invoke :self (readrawline)))]]
+    (readrawline))
 
   close :filepath
   output :result
-end
-
-to file.read.lines
-  ;; Read lines via readrawline, adding newline (10) after each.
-  localmake "line (readrawline)
-
-  if listp :line [output []]
-  output (se (msg.to.bytes :line) 10 (file.read.lines))
 end
 
 to sha256.hash :bytes
