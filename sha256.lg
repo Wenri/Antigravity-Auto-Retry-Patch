@@ -1,166 +1,195 @@
 ; ========================================================
-; SHA-256 -- Pure UCBLogo Implementation
+; sha256.lg -- Pure UCBLogo SHA-256 Implementation
 ;
 ; Usage:
-;   LOAD "sha256.lg
-;   PRINT B64.ENCODE SHA256.HASH [72 101 108 108 111]
+;   load "sha256.lg
+;   print b64.encode sha256.hash [72 101 108 108 111]
 ;   ; -> SGVsbG8=
 ;
-; Depends on: lib.lg (W32, ROTR, SHR, W32.ADD,
-;             PRIMEP, NPRIMES, FRAC32, HEX8)
+; Depends on: lib.lg (w32, rotr, shr, w32.add,
+;             primep, nprimes, frac32, hex8)
 ; ========================================================
 
-IF NOT DEFINEDP "W32 [ LOAD "lib.lg ]
+if not definedp "w32 ~
+  [load "lib.lg]
 
-; --- SHA-256 round functions ---
+; --- sha-256 round functions ---
 
-TO CH :E :F :G
-  OUTPUT BITXOR (BITAND :E :F) (BITAND (W32 BITNOT :E) :G)
-END
+to ch :e :f :g
+  output bitxor (bitand :e :f) ~
+                (bitand (w32 bitnot :e) :g)
+end
 
-TO MAJ :A :B :C
-  OUTPUT (BITXOR (BITAND :A :B) (BITXOR (BITAND :A :C) (BITAND :B :C)))
-END
+to maj :a :b :c
+  output (bitxor (bitand :a :b) ~
+           (bitxor (bitand :a :c) ~
+                   (bitand :b :c)))
+end
 
-TO BSIG0 :X
-  OUTPUT (BITXOR ROTR :X 2 (BITXOR ROTR :X 13 ROTR :X 22))
-END
+to bsig0 :x
+  output (bitxor rotr :x 2 ~
+           (bitxor rotr :x 13 ~
+                   rotr :x 22))
+end
 
-TO BSIG1 :X
-  OUTPUT (BITXOR ROTR :X 6 (BITXOR ROTR :X 11 ROTR :X 25))
-END
+to bsig1 :x
+  output (bitxor rotr :x 6 ~
+           (bitxor rotr :x 11 ~
+                   rotr :x 25))
+end
 
-TO SSIG0 :X
-  OUTPUT (BITXOR ROTR :X 7 (BITXOR ROTR :X 18 SHR :X 3))
-END
+to ssig0 :x
+  output (bitxor rotr :x 7 ~
+           (bitxor rotr :x 18 ~
+                   shr :x 3))
+end
 
-TO SSIG1 :X
-  OUTPUT (BITXOR ROTR :X 17 (BITXOR ROTR :X 19 SHR :X 10))
-END
+to ssig1 :x
+  output (bitxor rotr :x 17 ~
+           (bitxor rotr :x 19 ~
+                   shr :x 10))
+end
 
-; --- Constants (derived from primes) ---
+; --- constants (derived from primes) ---
 
-TO SHA.K
+to sha.k
   ; K[i] = floor(frac(cbrt(prime_i)) * 2^32) for the first 64 primes.
-  OUTPUT MAP [FRAC32 POWER ? (1 / 3)] NPRIMES 64
-END
+  output map [frac32 power ? (1 / 3)] nprimes 64
+end
 
-TO SHA.H0
+to sha.h0
   ; H[i] = floor(frac(sqrt(prime_i)) * 2^32) for the first 8 primes.
-  OUTPUT MAP [FRAC32 SQRT ?] NPRIMES 8
-END
+  output map [frac32 sqrt ?] nprimes 8
+end
 
-; --- Message preprocessing ---
+; --- message preprocessing ---
 
-TO MSG.TO.BYTES :MSG
-  IF EMPTYP :MSG [ OUTPUT [] ]
-  OUTPUT FPUT ASCII FIRST :MSG MSG.TO.BYTES BUTFIRST :MSG
-END
+to msg.to.bytes :msg
+  if emptyp :msg ~
+    [output []]
+  output fput ascii first :msg ~
+              msg.to.bytes butfirst :msg
+end
 
-TO SHA.PAD :BYTES
-  LOCALMAKE "BITLEN (COUNT :BYTES) * 8
-  OUTPUT (SE SHA.PAD.ZEROS LPUT 128 :BYTES ~
+to sha.pad :bytes
+  localmake "bitlen (count :bytes) * 8
+  output (se sha.pad.zeros lput 128 :bytes ~
     0 0 0 0 ~
-    BITAND (LSHIFT :BITLEN -24) 255 ~
-    BITAND (LSHIFT :BITLEN -16) 255 ~
-    BITAND (LSHIFT :BITLEN -8) 255 ~
-    BITAND :BITLEN 255)
-END
+    bitand (lshift :bitlen -24) 255 ~
+    bitand (lshift :bitlen -16) 255 ~
+    bitand (lshift :bitlen -8) 255 ~
+    bitand :bitlen 255)
+end
 
-TO SHA.PAD.ZEROS :P
-  IF (REMAINDER COUNT :P 64) = 56 [ OUTPUT :P ]
-  OUTPUT SHA.PAD.ZEROS LPUT 0 :P
-END
+to sha.pad.zeros :p
+  if (remainder count :p 64) = 56 ~
+    [output :p]
+  output sha.pad.zeros lput 0 :p
+end
 
-TO SHA.BLOCK.WORDS :BLK
-  ; Convert 64-byte list into 16-word list via Y.
-  OUTPUT (INVOKE Y [[L ACC SELF] ~
-    IFELSE EMPTYP :L [:ACC] ~
-      [(INVOKE :SELF BF BF BF BF :L ~
-        LPUT (BITOR (LSHIFT FIRST :L 24) ~
-          (BITOR (LSHIFT FIRST BF :L 16) ~
-            (BITOR (LSHIFT FIRST BF BF :L 8) FIRST BF BF BF :L))) ~
-        :ACC)]] ~
-    :BLK [])
-END
+to sha.block.words :blk
+  ; Convert 64-byte list into 16-word list via y.
+  output ~
+    (invoke y ~
+      [[l acc self] ~
+        ifelse emptyp :l ~
+          [:acc] ~
+          [(invoke :self bf bf bf bf :l ~
+            lput (bitor (lshift first :l 24) ~
+              (bitor (lshift first bf :l 16) ~
+                (bitor (lshift first bf bf :l 8) ~
+                  first bf bf bf :l))) ~
+            :acc)]] ~
+      :blk [])
+end
 
-TO SHA.EXPAND :BW
+to sha.expand :bw
   ; Build 64-entry message schedule as a list (no array mutation).
-  OUTPUT (INVOKE Y [[I WS SELF] ~
-    IFELSE :I > 64 [:WS] ~
-      [(INVOKE :SELF (:I + 1) LPUT ~
-        W32 ((SSIG1 ITEM (:I - 2) :WS) ~
-          + (ITEM (:I - 7) :WS) ~
-          + (SSIG0 ITEM (:I - 15) :WS) ~
-          + (ITEM (:I - 16) :WS)) ~
-        :WS)]] ~
-    17 :BW)
-END
+  output ~
+    (invoke y ~
+      [[i ws self] ~
+        ifelse :i > 64 ~
+          [:ws] ~
+          [(invoke :self (:i + 1) lput ~
+            w32 ((ssig1 item (:i - 2) :ws) ~
+              + (item (:i - 7) :ws) ~
+              + (ssig0 item (:i - 15) :ws) ~
+              + (item (:i - 16) :ws)) ~
+            :ws)]] ~
+      17 :bw)
+end
 
-TO SHA.COMPRESS :WS :KT :HV
-  ; 64 rounds via Y, then add round output to hash state.
-  LOCALMAKE "R ~
-    APPLY Y [[A B C D E F G H I SELF] ~
-      IFELSE :I > 64 ~
-        [(LIST :A :B :C :D :E :F :G :H)] [ ~
-        LOCALMAKE "T1 W32 (:H + (BSIG1 :E) + (CH :E :F :G) ~
-          + (ITEM :I :KT) + (ITEM :I :WS)) ~
-        LOCALMAKE "T2 W32 ((BSIG0 :A) + (MAJ :A :B :C)) ~
-        (INVOKE :SELF W32 (:T1 + :T2) :A :B :C ~
-          W32 (:D + :T1) :E :F :G (:I + 1))]] ~
-    LPUT 1 :HV
-  OUTPUT (MAP [[A B] W32 (:A + :B)] :HV :R)
-END
+to sha.compress :ws :kt :hv
+  ; 64 rounds via y, then add round output to hash state.
+  localmake "r ~
+    apply y ~
+      [[a b c d e f g h i self] ~
+        ifelse :i > 64 ~
+          [(list :a :b :c :d :e :f :g :h)] ~
+          [localmake "t1 w32 (:h + (bsig1 :e) + (ch :e :f :g) ~
+            + (item :i :kt) + (item :i :ws)) ~
+          localmake "t2 w32 ((bsig0 :a) + (maj :a :b :c)) ~
+          (invoke :self w32 (:t1 + :t2) :a :b :c ~
+            w32 (:d + :t1) :e :f :g (:i + 1))]] ~
+      lput 1 :hv
+  output (map [[a b] w32 (:a + :b)] :hv :r)
+end
 
-; --- Top-level API ---
+; --- top-level api ---
 
-TO TAKEN :N :LST
+to taken :n :lst
   ; Take first N elements of a list.
-  IF :N = 0 [ OUTPUT [] ]
-  OUTPUT FPUT FIRST :LST TAKEN :N - 1 BF :LST
-END
+  if :n = 0 ~
+    [output []]
+  output fput first :lst ~
+              taken :n - 1 bf :lst
+end
 
-TO DROPN :N :LST
+to dropn :n :lst
   ; Drop first N elements of a list.
-  IF :N = 0 [ OUTPUT :LST ]
-  OUTPUT DROPN :N - 1 BF :LST
-END
+  if :n = 0 ~
+    [output :lst]
+  output dropn :n - 1 bf :lst
+end
 
-TO SHA.SPLIT.BLOCKS :PADDED
-  IF EMPTYP :PADDED [ OUTPUT [] ]
-  OUTPUT LPUT TAKEN 64 :PADDED SHA.SPLIT.BLOCKS DROPN 64 :PADDED
-END
+to sha.split.blocks :padded
+  if emptyp :padded ~
+    [output []]
+  output lput taken 64 :padded ~
+              sha.split.blocks dropn 64 :padded
+end
 
-TO W32.BYTES :W
+to w32.bytes :w
   ; Split a 32-bit word into 4 bytes (big-endian).
-  OUTPUT (LIST BITAND (LSHIFT :W -24) 255 ~
-              BITAND (LSHIFT :W -16) 255 ~
-              BITAND (LSHIFT :W -8) 255 ~
-              BITAND :W 255)
-END
+  output (list bitand (lshift :w -24) 255 ~
+              bitand (lshift :w -16) 255 ~
+              bitand (lshift :w -8) 255 ~
+              bitand :w 255)
+end
 
-TO FILE.BYTES :FILEPATH
+to file.bytes :filepath
   ; Read a file as a list of bytes.
-  OPENREAD :FILEPATH
-  SETREAD  :FILEPATH
-  LOCALMAKE "RESULT FILE.READ.LINES
-  CLOSE :FILEPATH
-  OUTPUT :RESULT
-END
+  openread :filepath
+  setread  :filepath
+  localmake "result file.read.lines
+  close :filepath
+  output :result
+end
 
-TO FILE.READ.LINES
-  ; Read lines via READRAWLINE, adding newline (10) after each.
-  LOCALMAKE "LINE READRAWLINE
-  IF LISTP :LINE [ OUTPUT [] ]
-  OUTPUT (SE MSG.TO.BYTES :LINE 10 FILE.READ.LINES)
-END
+to file.read.lines
+  ; Read lines via readrawline, adding newline (10) after each.
+  localmake "line readrawline
+  if listp :line ~
+    [output []]
+  output (se msg.to.bytes :line 10 file.read.lines)
+end
 
-TO SHA256.HASH :BYTES
+to sha256.hash :bytes
   ; SHA-256 hash a byte list, output as 32-byte list.
-  ; REDUCE is a right fold; SPLIT.BLOCKS produces reversed blocks,
-  ; so LPUT H0 gives [Bn..B1 H0] => f(Bn, ...f(B1, H0)).
-  LOCALMAKE "KT SHA.K
-  OUTPUT MAP.SE [[W] W32.BYTES :W] ~
-    REDUCE [[BLK HV] SHA.COMPRESS SHA.EXPAND SHA.BLOCK.WORDS :BLK :KT :HV] ~
-      LPUT SHA.H0 SHA.SPLIT.BLOCKS SHA.PAD :BYTES
-END
+  ; reduce is a right fold; split.blocks produces reversed blocks,
+  ; so lput h0 gives [Bn..B1 H0] => f(Bn, ...f(B1, H0)).
+  localmake "kt sha.k
+  output map.se [[w] w32.bytes :w] ~
+    reduce [[blk hv] sha.compress sha.expand sha.block.words :blk :kt :hv] ~
+      lput sha.h0 sha.split.blocks sha.pad :bytes
+end

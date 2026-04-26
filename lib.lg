@@ -1,157 +1,185 @@
 ; ========================================================
 ; lib.lg -- Reusable UCBLogo Primitives
 ;
-; Usage:  LOAD "lib.lg
+; Usage:  load "lib.lg
 ;
 ; Contents:
-;   Word/List utilities:  FLATTEN, JOIN.WITH, JOIN.PIPE,
-;                         SH.QUOTE, STRIP.PAD, WRITE.LINES
-;   File utilities:       CHECK.FILE
-;   Combinator:           Y
-;   32-bit arithmetic:    W32, ROTR, SHR, W32.ADD
-;   Math:                 PRIMEP, NPRIMES, FRAC32
-;   Formatting:           HEXN, HEX8
+;   word/list utilities:  flatten, join.with, join.pipe,
+;                         sh.quote, strip.pad, write.lines
+;   file utilities:       check.file
+;   combinator:           y
+;   32-bit arithmetic:    w32, rotr, shr, w32.add
+;   math:                 primep, nprimes, frac32
+;   formatting:           hexn, hex8
 ; ========================================================
 
-; --- Word / List utilities ---
+; --- word / list utilities ---
 
-TO FLATTEN :X
+to flatten :x
   ; Recursively concat all nested words: [[a b] [c d]] -> "abcd"
-  IF WORDP :X [ OUTPUT :X ]
-  OUTPUT APPLY "WORD MAP "FLATTEN :X
-END
+  if wordp :x ~
+    [output :x]
+  output apply "word map "flatten :x
+end
 
-TO JOIN.WITH :SEP :CMDS
-  ; Join list-of-lists with :SEP between them.
-  IF EQUALP COUNT :CMDS 1 [ OUTPUT FIRST :CMDS ]
-  OUTPUT (SE FIRST :CMDS :SEP JOIN.WITH :SEP BUTFIRST :CMDS)
-END
+to join.with :sep :cmds
+  ; Join list-of-lists with :sep between them.
+  if equalp count :cmds 1 ~
+    [output first :cmds]
+  output (se first :cmds :sep join.with :sep butfirst :cmds)
+end
 
-TO JOIN.PIPE :CMDS
-  OUTPUT JOIN.WITH "|\|| :CMDS
-END
+to join.pipe :cmds
+  output join.with "|\|| :cmds
+end
 
-TO SH.QUOTE :LST
+to sh.quote :lst
   ; Join with spaces and wrap in single quotes: [a b] -> 'a b'
-  OUTPUT (WORD "' FLATTEN JOIN.WITH "| | :LST "')
-END
+  output (word "' flatten join.with "| | :lst "')
+end
 
-TO STRIP.PAD :W
-  IF EMPTYP :W [ OUTPUT :W ]
-  IF EQUALP LAST :W "= [ OUTPUT STRIP.PAD BUTLAST :W ]
-  OUTPUT :W
-END
+to strip.pad :w
+  if emptyp :w ~
+    [output :w]
+  if equalp last :w "= ~
+    [output strip.pad butlast :w]
+  output :w
+end
 
-TO WRITE.LINES :FILE :LINES
-  OPENWRITE :FILE
-  SETWRITE  :FILE
-  FOREACH :LINES [ PRINT ? ]
-  CLOSE :FILE
-END
+to write.lines :file :lines
+  openwrite :file
+  setwrite  :file
+  foreach :lines [print ?]
+  close :file
+end
 
-; --- File utilities ---
+; --- file utilities ---
 
-TO CHECK.FILE :FILEPATH
-  OUTPUT FILEP :FILEPATH
-END
+to check.file :filepath
+  output filep :filepath
+end
 
-; --- Combinator ---
+; --- combinator ---
 
-TO Y :F
+to y :f
   ; Fixed-point combinator via templates.
-  ; FIRST :F = [template].
+  ; first :f = [template].
   ;
   ; Code-is-data example:
-  ;   PRINT INVOKE Y [[N F] IFELSE :N=0 [1] [:N * INVOKE :F :N-1]] 10
+  ;   print invoke y [[n f] ifelse :n=0 [1] [:n * invoke :f :n-1]] 10
   ;
-  LOCALMAKE "S MAP [WORD "? #] BL FIRST :F
-  OUTPUT `[( INVOKE ,:F ,@ :S , [`[( INVOKE Y ,:F ,@ :S )]] )]
-END
+  localmake "s map [word "? #] bl first :f
+  output `[( invoke ,:f ,@ :s , [`[( invoke y ,:f ,@ :s )]] )]
+end
 
 ; --- 32-bit word primitives ---
 
-TO W32 :N
-  ; Clamp to unsigned 32-bit via REMAINDER.
-  LOCALMAKE "R REMAINDER :N (LSHIFT 1 32)
-  IF :R < 0 [ OUTPUT :R + (LSHIFT 1 32) ]
-  OUTPUT :R
-END
+to w32 :n
+  ; Clamp to unsigned 32-bit via remainder.
+  localmake "r remainder :n (lshift 1 32)
+  if :r < 0 ~
+    [output :r + (lshift 1 32)]
+  output :r
+end
 
-TO ROTR :X :N
-  OUTPUT W32 BITOR (LSHIFT :X (0 - :N)) (LSHIFT :X (32 - :N))
-END
+to rotr :x :n
+  output w32 bitor (lshift :x (0 - :n)) (lshift :x (32 - :n))
+end
 
-TO SHR :X :N
-  OUTPUT LSHIFT :X (0 - :N)
-END
+to shr :x :n
+  output lshift :x (0 - :n)
+end
 
-TO W32.ADD :A :B
-  OUTPUT W32 (:A + :B)
-END
+to w32.add :a :b
+  output w32 (:a + :b)
+end
 
+; --- math utilities ---
 
+to primep :n
+  ; Test if :n is prime (6k+/-1 wheel via y).
+  if :n < 2 ~
+    [output "false]
+  if :n < 4 ~
+    [output "true]
+  if (remainder :n 2) = 0 ~
+    [output "false]
+  if (remainder :n 3) = 0 ~
+    [output "false]
+  output ~
+    (invoke y ~
+      [[d s self] ~
+        ifelse :d * :d > :n ~
+          ["true] ~
+          [ifelse (remainder :n :d) = 0 ~
+            ["false] ~
+            [(invoke :self :d + :s 6 - :s)]]] ~
+      5 2)
+end
 
-; --- Math utilities ---
+to nprimes :n
+  ; First :n primes via 6k+/-1 wheel (y combinator).
+  ; acc excludes [2 3] -- wheel guarantees coprimality, no dup checks.
+  if :n < 1 ~
+    [output []]
+  if :n = 1 ~
+    [output [2]]
+  if :n = 2 ~
+    [output [2 3]]
+  output ~
+    (se [2 3] ~
+      (invoke y ~
+        [[k c s acc self] ~
+          ifelse :k = 0 ~
+            [:acc] ~
+            [ifelse divides.none :c :acc ~
+              [(invoke :self :k - 1 :c + :s 6 - :s lput :c :acc)] ~
+              [(invoke :self :k :c + :s 6 - :s :acc)]]] ~
+        :n - 2 5 2 []))
+end
 
-TO PRIMEP :N
-  ; Test if :N is prime (6k+/-1 wheel via Y).
-  IF :N < 2 [ OUTPUT "false ]
-  IF :N < 4 [ OUTPUT "true ]
-  IF (REMAINDER :N 2) = 0 [ OUTPUT "false ]
-  IF (REMAINDER :N 3) = 0 [ OUTPUT "false ]
-  OUTPUT (INVOKE Y [[D S SELF] ~
-    IFELSE :D * :D > :N ["true] [ ~
-    IFELSE (REMAINDER :N :D) = 0 ["false] ~
-      [(INVOKE :SELF :D + :S 6 - :S)]]] 5 2)
-END
+to divides.none :n :primes
+  ; True if no prime in :primes divides :n (stops at sqrt).
+  if emptyp :primes ~
+    [output "true]
+  if (first :primes) * (first :primes) > :n ~
+    [output "true]
+  if (remainder :n first :primes) = 0 ~
+    [output "false]
+  output divides.none :n bf :primes
+end
 
-TO NPRIMES :N
-  ; First :N primes via 6k+/-1 wheel (Y combinator).
-  ; ACC excludes [2 3] — wheel guarantees coprimality, no dup checks.
-  IF :N < 1 [ OUTPUT [] ]
-  IF :N = 1 [ OUTPUT [2] ]
-  IF :N = 2 [ OUTPUT [2 3] ]
-  OUTPUT (SE [2 3] (INVOKE Y [[K C S ACC SELF] ~
-    IFELSE :K = 0 [:ACC] [ ~
-    IFELSE DIVIDES.NONE :C :ACC ~
-      [(INVOKE :SELF :K - 1 :C + :S 6 - :S LPUT :C :ACC)] ~
-      [(INVOKE :SELF :K :C + :S 6 - :S :ACC)]]] ~
-    :N - 2 5 2 []))
-END
+to frac32 :x
+  ; First 32 bits of fractional part of :x via y combinator.
+  ; Accumulates the word directly via shift+or, no intermediate list.
+  output ~
+    (invoke y ~
+      [[n f acc self] ~
+        ifelse :n = 0 ~
+          [:acc] ~
+          [(invoke :self ~
+            (:n - 1) ~
+            ((:f * 256) - int (:f * 256)) ~
+            (bitor (lshift :acc 8) int (:f * 256)))]] ~
+      4 (:x - int :x) 0)
+end
 
-TO DIVIDES.NONE :N :PRIMES
-  ; True if no prime in :PRIMES divides :N (stops at sqrt).
-  IF EMPTYP :PRIMES [ OUTPUT "true ]
-  IF (FIRST :PRIMES) * (FIRST :PRIMES) > :N [ OUTPUT "true ]
-  IF (REMAINDER :N FIRST :PRIMES) = 0 [ OUTPUT "false ]
-  OUTPUT DIVIDES.NONE :N BF :PRIMES
-END
+; --- formatting ---
 
-TO FRAC32 :X
-  ; First 32 bits of fractional part of :X via Y combinator.
-  ; Accumulates the word directly via shift+OR, no intermediate list.
-  OUTPUT ~
-    (INVOKE Y [[N F ACC SELF] ~
-      IFELSE :N = 0 ~
-        [:ACC] ~
-        [(INVOKE :SELF (:N - 1) ~
-          ((:F * 256) - INT (:F * 256)) ~
-          (BITOR (LSHIFT :ACC 8) INT (:F * 256)))]] ~
-    4 (:X - INT :X) 0)
-END
+to hexn :digits :n
+  ; Format :n as a zero-padded lowercase hex string of :digits chars.
+  output ~
+    (invoke y ~
+      [[i v s self] ~
+        ifelse :i = 0 ~
+          [:s] ~
+          [(invoke :self ~
+            (:i - 1) ~
+            (lshift :v -4) ~
+            word item (bitand :v 15) + 1 "0123456789abcdef :s)]] ~
+      :digits :n "||)
+end
 
-; --- Formatting ---
-
-TO HEXN :DIGITS :N
-  ; Format :N as a zero-padded lowercase hex string of :DIGITS chars.
-  OUTPUT ~
-    (INVOKE Y [[I V S SELF] ~
-      IFELSE :I = 0 [:S] ~
-        [(INVOKE :SELF (:I - 1) (LSHIFT :V -4) ~
-          WORD ITEM (BITAND :V 15) + 1 "0123456789abcdef :S)]] ~
-    :DIGITS :N "||)
-END
-
-TO HEX8 :N
-  OUTPUT HEXN 8 :N
-END
+to hex8 :n
+  output hexn 8 :n
+end

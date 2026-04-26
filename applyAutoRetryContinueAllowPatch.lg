@@ -6,23 +6,26 @@
 ;
 ; Logo quirks to know:
 ;   - |vbar| words need " prefix for data:  "|hello world|
-;   - | inside vbars must be escaped:       "|\||
-;   - SHELL without "w returns list-of-lists (READLIST per line)
+;   - | inside vbars must be escaped:       "|\|
+;   - shell without "w returns list-of-lists (readlist per line)
 ; ========================================================
 
-IF NOT DEFINEDP "SHA256.HASH [ LOAD "sha256.lg ]
-IF NOT DEFINEDP "B64.ENCODE [ LOAD "base64.lg ]
+if not definedp "sha256.hash ~
+  [load "sha256.lg]
+if not definedp "b64.encode ~
+  [load "base64.lg]
 
-; --- Application ---
+; --- application ---
 
-TO FIND.WORKBENCH
-  LOCALMAKE "LINUX "|/opt/antigravity/resources/app/out/vs/code/electron-browser/workbench/workbench.html|
-  IF CHECK.FILE :LINUX [ OUTPUT :LINUX ]
-  OUTPUT "NULL
-END
+to find.workbench
+  localmake "linux "|/opt/antigravity/resources/app/out/vs/code/electron-browser/workbench/workbench.html|
+  if check.file :linux ~
+    [output :linux]
+  output "NULL
+end
 
-TO GENERATE.INJECTION :MODE
-  OUTPUT [
+to generate.injection :mode
+  output [
     |<script>|
     |(function() {|
     |  const clickedButtons = new WeakSet();|
@@ -33,80 +36,81 @@ TO GENERATE.INJECTION :MODE
     |})();|
     |</script>|
     ]
-END
+end
 
-TO QUEUE.CHECKSUM :PROD :TMP.HTML
-  IF NOT CHECK.FILE :PROD [ STOP ]
+to queue.checksum :prod :tmp.html
+  if not check.file :prod ~
+    [stop]
 
   ; Native SHA-256 + base64 (no shell-out)
-  LOCALMAKE "HASH B64.ENCODE SHA256.HASH FILE.BYTES :TMP.HTML
+  localmake "hash b64.encode sha256.hash file.bytes :tmp.html
 
-  ; jq output needs "w — JSON contains {, }, [ which confuse READLIST.
-  LOCALMAKE "JQ_OUT (SHELL ~
-    (SE [jq --arg h] :HASH ~
-        "|'.checksums["vs/code/electron-browser/workbench/workbench.html"] = $h'| ~
-        :PROD) ~
+  ; jq output needs "w -- JSON contains {, }, [ which confuse readlist.
+  localmake "jq_out (shell ~
+    (se [jq --arg h] :hash ~
+        "|'.checksums[\"vs/code/electron-browser/workbench/workbench.html\"] = $h'| ~
+        :prod) ~
     "w)
 
-  WRITE.LINES "|/tmp/prod.json| :JQ_OUT
-  MAKE "WRITES LPUT (LIST :PROD "|/tmp/prod.json|) :WRITES
-END
+  write.lines "|/tmp/prod.json| :jq_out
+  make "writes lput (list :prod "|/tmp/prod.json|") :writes
+end
 
-TO BUILD.CMD :WRITES
+to build.cmd :writes
   ; Convert write-pairs to [cp src dest], join with &&.
-  IF EMPTYP :WRITES [ OUTPUT [echo Done] ]
-  LOCALMAKE "PAIR FIRST :WRITES
-  OUTPUT (SE [cp] LAST :PAIR FIRST :PAIR [&&] BUILD.CMD BUTFIRST :WRITES)
-END
+  if emptyp :writes ~
+    [output [echo Done]]
+  localmake "pair first :writes
+  output (se [cp] last :pair first :pair [&&] build.cmd butfirst :writes)
+end
 
-TO ELEVATE.AND.WRITE :WRITES
-  IF EMPTYP :WRITES [ STOP ]
-  PRINT [!!! The turtle is requesting sudo elevation !!!]
-  IGNORE SHELL (SE [sudo sh -c] SH.QUOTE BUILD.CMD :WRITES)
-END
+to elevate.and.write :writes
+  if emptyp :writes ~
+    [stop]
+  print [!!! The turtle is requesting sudo elevation !!!]
+  ignore shell (se [sudo sh -c] sh.quote build.cmd :writes)
+end
 
-TO PATCH.FLOW :MODE :WB :BAK :PROD :PRODBAK
-  MAKE "WRITES []
+to patch.flow :mode :wb :bak :prod :prodbak
+  make "writes []
 
-  IFELSE CHECK.FILE :BAK [
-    PRINT [Clean backup found.]
-  ] [
-    PRINT [No backup found. Queueing backup...]
-    MAKE "WRITES LPUT (LIST :BAK :WB) :WRITES
-  ]
+  ifelse check.file :bak ~
+    [print [Clean backup found.]] ~
+    [print [No backup found. Queueing backup...] ~
+      make "writes lput (list :bak :wb) :writes]
 
-  WRITE.LINES "|/tmp/payload.js| (GENERATE.INJECTION :MODE)
+  write.lines "|/tmp/payload.js| (generate.injection :mode)
 
-  LOCALMAKE "HTML.TMP "|/tmp/workbench.html|
-  IGNORE SHELL (SE [cp] :WB :HTML.TMP)
-  LOCALMAKE "SED.ARG (WORD "|'/<\\/body>/r /tmp/payload.js'|)
-  IGNORE SHELL (SE [sed -i -e] :SED.ARG :HTML.TMP)
+  localmake "html.tmp "|/tmp/workbench.html|
+  ignore shell (se [cp] :wb :html.tmp)
+  localmake "sed.arg (word "|'/</\\/body>/r /tmp/payload.js'|")
+  ignore shell (se [sed -i -e] :sed.arg :html.tmp)
 
-  MAKE "WRITES LPUT (LIST :WB :HTML.TMP) :WRITES
-  QUEUE.CHECKSUM :PROD :HTML.TMP
+  make "writes lput (list :wb :html.tmp) :writes
+  queue.checksum :prod :html.tmp
 
-  ELEVATE.AND.WRITE :WRITES
-END
+  elevate.and.write :writes
+end
 
-TO MAIN
-  PRINT [====================================]
-  PRINT [ ANTIGRAVITY PATCHER - LOGO EDITION ]
-  PRINT [====================================]
+to main
+  print [====================================]
+  print [ ANTIGRAVITY PATCHER - LOGO EDITION ]
+  print [====================================]
 
-  LOCALMAKE "WB FIND.WORKBENCH
+  localmake "wb find.workbench
 
-  IF EQUALP :WB "NULL [
-    PRINT [Error: Antigravity not installed!]
-    STOP
-  ]
+  if equalp :wb "NULL ~
+    [print [Error: Antigravity not installed!] ~
+      stop]
 
-  PATCH.FLOW "all :WB (WORD :WB "|.bak|) ~
+  patch.flow "all :wb (word :wb "|.bak|") ~
     "|/opt/antigravity/resources/app/product.json| ~
-    (WORD "|/opt/antigravity/resources/app/product.json| "|.bak|)
+    (word "|/opt/antigravity/resources/app/product.json| "|.bak|")
 
-  CATCH "ERROR [ CS PENDOWN REPEAT 4 [ FORWARD 100 RIGHT 90 ] ]
-  PRINT [Patch complete. The turtle draws a square and rests.]
-END
+  catch "error ~
+    [cs pendown repeat 4 [forward 100 right 90]]
+  print [Patch complete. The turtle draws a square and rests.]
+end
 
-MAIN
-BYE
+main
+bye
