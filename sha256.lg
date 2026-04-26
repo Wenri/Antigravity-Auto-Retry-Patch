@@ -107,11 +107,7 @@ END
 
 TO SHA.EXPAND :BW
   ; Build 64-entry message schedule as a list (no array mutation).
-  ; Step 1: copy 16 words from block array into a list
-  LOCALMAKE "INIT (INVOKE Y [[I ACC SELF] ~
-    IFELSE :I > 16 [:ACC] ~
-      [(INVOKE :SELF (:I + 1) LPUT ITEM :I :BW :ACC)]] ~
-    1 [])
+  LOCALMAKE "INIT MAP [ITEM ? :BW] ISEQ 1 16
   ; Step 2: extend to 64 entries from previous values
   OUTPUT (INVOKE Y [[I WS SELF] ~
     IFELSE :I > 64 [:WS] ~
