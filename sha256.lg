@@ -90,19 +90,15 @@ TO SHA.PAD.ZEROS :P
 END
 
 TO SHA.BLOCK.WORDS :BLK
-  ; Convert a 64-byte list into a 16-element array of 32-bit words.
-  LOCAL [L J]
-  LOCALMAKE "WRD ARRAY 16
-  MAKE "L :BLK
-  MAKE "J 1
-  REPEAT 16 [
-    SETITEM :J :WRD (BITOR (LSHIFT FIRST :L 24) ~
-      (BITOR (LSHIFT FIRST BF :L 16) ~
-        (BITOR (LSHIFT FIRST BF BF :L 8) FIRST BF BF BF :L)))
-    MAKE "L BF BF BF BF :L
-    MAKE "J :J + 1
-  ]
-  OUTPUT :WRD
+  ; Convert 64-byte list into 16-word list via Y.
+  OUTPUT (INVOKE Y [[L ACC SELF] ~
+    IFELSE EMPTYP :L [:ACC] ~
+      [(INVOKE :SELF BF BF BF BF :L ~
+        LPUT (BITOR (LSHIFT FIRST :L 24) ~
+          (BITOR (LSHIFT FIRST BF :L 16) ~
+            (BITOR (LSHIFT FIRST BF BF :L 8) FIRST BF BF BF :L))) ~
+        :ACC)]] ~
+    :BLK [])
 END
 
 TO SHA.EXPAND :BW
@@ -116,7 +112,7 @@ TO SHA.EXPAND :BW
           SSIG0 ITEM (:I - 15) :WS ~
           ITEM (:I - 16) :WS ~
         :WS)]] ~
-    17 ARRAYTOLIST :BW)
+    17 :BW)
 END
 
 TO SHA.COMPRESS :WS :KT :HV
