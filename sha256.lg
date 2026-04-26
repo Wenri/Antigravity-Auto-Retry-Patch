@@ -129,7 +129,7 @@ END
 
 TO SHA.SPLIT.BLOCKS :PADDED
   IF EMPTYP :PADDED [ OUTPUT [] ]
-  OUTPUT FPUT TAKEN 64 :PADDED SHA.SPLIT.BLOCKS DROPN 64 :PADDED
+  OUTPUT LPUT TAKEN 64 :PADDED SHA.SPLIT.BLOCKS DROPN 64 :PADDED
 END
 
 TO W32.BYTES :W
@@ -158,10 +158,10 @@ END
 
 TO SHA256.HASH :BYTES
   ; SHA-256 hash a byte list, output as 32-byte list.
-  ; Right-fold REDUCE over reversed blocks with H0 as seed:
-  ;   reduce f [Bn..B1 H0] = f(Bn, ... f(B2, f(B1, H0)))
+  ; REDUCE is a right fold; SPLIT.BLOCKS produces reversed blocks,
+  ; so LPUT H0 gives [Bn..B1 H0] => f(Bn, ...f(B1, H0)).
   LOCALMAKE "KT SHA.K
   OUTPUT MAP.SE [[W] W32.BYTES :W] ~
     REDUCE [[BLK HV] SHA.COMPRESS SHA.EXPAND SHA.BLOCK.WORDS :BLK :KT :HV] ~
-      LPUT SHA.H0 REVERSE SHA.SPLIT.BLOCKS SHA.PAD :BYTES
+      LPUT SHA.H0 SHA.SPLIT.BLOCKS SHA.PAD :BYTES
 END
