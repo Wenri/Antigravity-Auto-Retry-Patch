@@ -152,11 +152,6 @@ TO W32.BYTES :W
               BITAND :W 255)
 END
 
-TO SHA256.BYTES :MSG
-  ; SHA-256 hash as a list of 32 bytes.
-  OUTPUT SHA256.HASH MSG.TO.BYTES :MSG
-END
-
 TO FILE.BYTES :FILEPATH
   ; Read a file as a list of bytes.
   OPENREAD :FILEPATH
