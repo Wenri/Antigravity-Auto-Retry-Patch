@@ -16,15 +16,13 @@
 
 to flatten :x
   ;; Recursively concat all nested words: [[a b] [c d]] -> "abcd"
-  if wordp :x [
-    output :x]
+  if wordp :x [output :x]
   output (apply "word (map "flatten :x))
 end
 
 to join.with :sep :cmds
   ;; Join list-of-lists with :sep between them.
-  if equalp (count :cmds) 1 [
-    output (first :cmds)]
+  if equalp (count :cmds) 1 [output (first :cmds)]
   output (se (first :cmds) :sep (join.with :sep (butfirst :cmds)))
 end
 
@@ -38,10 +36,8 @@ to sh.quote :lst
 end
 
 to strip.pad :w
-  if emptyp :w [
-    output :w]
-  if equalp (last :w) "= [
-    output (strip.pad (butlast :w))]
+  if emptyp :w [output :w]
+  if equalp (last :w) "= [output (strip.pad (butlast :w))]
   output :w
 end
 
@@ -80,8 +76,7 @@ to w32 :n
   ;; Clamp to unsigned 32-bit via remainder.
   localmake "r (remainder :n (lshift 1 32))
 
-  if :r < 0 [
-    output :r + (lshift 1 32)]
+  if :r < 0 [output :r + (lshift 1 32)]
   output :r
 end
 
@@ -103,52 +98,42 @@ end
 
 to primep :n
   ;; Test if :n is prime (6k+/-1 wheel via y).
-  if :n < 2 [
-    output "false]
-  if :n < 4 [
-    output "true]
-  if (remainder :n 2) = 0 [
-    output "false]
-  if (remainder :n 3) = 0 [
-    output "false]
+  if :n < 2 [output "false]
+  if :n < 4 [output "true]
+  if (remainder :n 2) = 0 [output "false]
+  if (remainder :n 3) = 0 [output "false]
   output (invoke y
     [[d s self]
-      ifelse :d * :d > :n [
-        "true] [
-        ifelse (remainder :n :d) = 0 [
-          "false] [
-          (invoke :self :d + :s 6 - :s)]]]
+      ifelse :d * :d > :n
+        ["true]
+        [ifelse (remainder :n :d) = 0
+          ["false]
+          [(invoke :self :d + :s 6 - :s)]]]
     5 2)
 end
 
 to nprimes :n
   ;; First :n primes via 6k+/-1 wheel (y combinator).
   ;; acc excludes [2 3] -- wheel guarantees coprimality, no dup checks.
-  if :n < 1 [
-    output []]
-  if :n = 1 [
-    output [2]]
-  if :n = 2 [
-    output [2 3]]
+  if :n < 1 [output []]
+  if :n = 1 [output [2]]
+  if :n = 2 [output [2 3]]
   output (se [2 3]
     (invoke y
       [[k c s acc self]
-        ifelse :k = 0 [
-          :acc] [
-          ifelse (divides.none :c :acc) [
-            (invoke :self :k - 1 :c + :s 6 - :s (lput :c :acc))] [
-            (invoke :self :k :c + :s 6 - :s :acc)]]]
+        ifelse :k = 0
+          [:acc]
+          [ifelse (divides.none :c :acc)
+            [(invoke :self :k - 1 :c + :s 6 - :s (lput :c :acc))]
+            [(invoke :self :k :c + :s 6 - :s :acc)]]]
       :n - 2 5 2 []))
 end
 
 to divides.none :n :primes
   ;; True if no prime in :primes divides :n (stops at sqrt).
-  if emptyp :primes [
-    output "true]
-  if (first :primes) * (first :primes) > :n [
-    output "true]
-  if (remainder :n (first :primes)) = 0 [
-    output "false]
+  if emptyp :primes [output "true]
+  if (first :primes) * (first :primes) > :n [output "true]
+  if (remainder :n (first :primes)) = 0 [output "false]
   output (divides.none :n (bf :primes))
 end
 
@@ -157,9 +142,9 @@ to frac32 :x
   ;; Accumulates the word directly via shift+or, no intermediate list.
   output (invoke y
     [[n f acc self]
-      ifelse :n = 0 [
-        :acc] [
-        (invoke :self
+      ifelse :n = 0
+        [:acc]
+        [(invoke :self
           (:n - 1)
           ((:f * 256) - (int (:f * 256)))
           (bitor (lshift :acc 8) (int (:f * 256))))]]
@@ -173,9 +158,9 @@ to hexn :digits :n
   ;; Format :n as a zero-padded lowercase hex string of :digits chars.
   output (invoke y
     [[i v s self]
-      ifelse :i = 0 [
-        :s] [
-        (invoke :self
+      ifelse :i = 0
+        [:s]
+        [(invoke :self
           (:i - 1)
           (lshift :v -4)
           (word (item (bitand :v 15) + 1 "0123456789abcdef) :s))]]

@@ -8,10 +8,8 @@
 ;;;;   - | inside vbars must be escaped:       "|\|
 ;;;;   - shell without "w returns list-of-lists (readlist per line)
 
-if not definedp "sha256.hash [
-  load "sha256.lg]
-if not definedp "b64.encode [
-  load "base64.lg]
+if not definedp "sha256.hash [load "sha256.lg]
+if not definedp "b64.encode [load "base64.lg]
 
 
 ;;; application
@@ -19,8 +17,7 @@ if not definedp "b64.encode [
 to find.workbench
   localmake "linux "|/opt/antigravity/resources/app/out/vs/code/electron-browser/workbench/workbench.html|
 
-  if (check.file :linux) [
-    output :linux]
+  if (check.file :linux) [output :linux]
   output "NULL
 end
 
@@ -38,8 +35,7 @@ to generate.injection :mode
 end
 
 to queue.checksum :prod :tmp.html
-  if not (check.file :prod) [
-    stop]
+  if not (check.file :prod) [stop]
 
   ;; Native SHA-256 + base64 (no shell-out)
   localmake "hash (b64.encode (sha256.hash (file.bytes :tmp.html)))
@@ -57,16 +53,14 @@ end
 
 to build.cmd :writes
   ;; Convert write-pairs to [cp src dest], join with &&.
-  if emptyp :writes [
-    output [echo Done]]
+  if emptyp :writes [output [echo Done]]
   localmake "pair (first :writes)
 
   output (se [cp] (last :pair) (first :pair) [&&] (build.cmd (butfirst :writes)))
 end
 
 to elevate.and.write :writes
-  if emptyp :writes [
-    stop]
+  if emptyp :writes [stop]
   print [!!! The turtle is requesting sudo elevation !!!]
   ignore (shell (se [sudo sh -c] (sh.quote (build.cmd :writes))))
 end
@@ -74,10 +68,10 @@ end
 to patch.flow :mode :wb :bak :prod :prodbak
   make "writes []
 
-  ifelse (check.file :bak) [
-    print [Clean backup found.]] [
-    print [No backup found. Queueing backup...]
-    make "writes (lput (list :bak :wb) :writes)]
+  (ifelse (check.file :bak)
+    [print [Clean backup found.]]
+    [print [No backup found. Queueing backup...]
+      make "writes (lput (list :bak :wb) :writes)])
 
   (write.lines "|/tmp/payload.js| (generate.injection :mode))
 
