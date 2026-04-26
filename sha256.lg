@@ -110,14 +110,7 @@ TO SHA.COMPRESS :WS :KT :HV
           W32 (:D + :T1) :E :F :G (:I + 1))]] ~
     ITEM 1 :HV ITEM 2 :HV ITEM 3 :HV ITEM 4 :HV ~
     ITEM 5 :HV ITEM 6 :HV ITEM 7 :HV ITEM 8 :HV 1)
-  OUTPUT (LIST W32 ((ITEM 1 :HV) + ITEM 1 :R) ~
-               W32 ((ITEM 2 :HV) + ITEM 2 :R) ~
-               W32 ((ITEM 3 :HV) + ITEM 3 :R) ~
-               W32 ((ITEM 4 :HV) + ITEM 4 :R) ~
-               W32 ((ITEM 5 :HV) + ITEM 5 :R) ~
-               W32 ((ITEM 6 :HV) + ITEM 6 :R) ~
-               W32 ((ITEM 7 :HV) + ITEM 7 :R) ~
-               W32 ((ITEM 8 :HV) + ITEM 8 :R))
+  OUTPUT (MAP [[A B] W32 (:A + :B)] :HV :R)
 END
 
 ; --- Top-level API ---
@@ -171,5 +164,5 @@ TO SHA256.HASH :BYTES
   FOREACH :BLOCKS [
     MAKE "HV SHA.COMPRESS SHA.EXPAND SHA.BLOCK.WORDS ? :KT :HV
   ]
-  OUTPUT MAP.SE "W32.BYTES :HV
+  OUTPUT MAP.SE [[W] W32.BYTES :W] :HV
 END
