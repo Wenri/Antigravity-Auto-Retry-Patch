@@ -1,89 +1,287 @@
 #!/usr/bin/env ucblogo
 
-;;;; ANTIGRAVITY PATCHER - LOGO TURTLE EDITION
-;;;; Run with: ucblogo applyAutoRetryContinueAllowPatch.lg
+;;;; ANTIGRAVITY PATCHER - UCBLogo edition
+;;;; Run with:  sudo ucblogo applyAutoRetryContinueAllowPatch.lg
 ;;;;
-;;;; Logo quirks to know:
-;;;;   - |vbar| words need " prefix for data:  "|hello world|
-;;;;   - | inside vbars must be escaped:       "|\|
-;;;;   - shell without "w returns list-of-lists (readlist per line)
+;;;; Pure-Logo equivalent of applyAutoRetryContinueAllowPatch.js.
+;;;; Probes Mac/Linux install paths via stdlib (find "filep ...);
+;;;; pure-Logo HTML splice (no sed); jq for product.json checksum;
+;;;; one sudo prompt per run via batched cp.
+;;;;
+;;;; UCBLogo quirks worth pinning:
+;;;;   - vbar words "|...| take chars literally; \| escapes pipe,
+;;;;     \\ escapes backslash, other \X drops the backslash
+;;;;   - shell ... "w returns one word per line (raw, unparsed)
+;;;;   - find/cascade are stdlib (logolib/) -- prefer over y when fit
 
 if not definedp "sha256.hash [load "sha256.lg]
 if not definedp "b64.encode [load "base64.lg]
 
 
-;;; application
+;;; install location
+
+to wb.candidates
+  ;; Mac first; same suffix-strip in product.json.path covers both.
+  output [
+    |/Applications/Antigravity.app/Contents/Resources/app/out/vs/code/electron-browser/workbench/workbench.html|
+    |/usr/share/antigravity/resources/app/out/vs/code/electron-browser/workbench/workbench.html|
+    |/opt/antigravity/resources/app/out/vs/code/electron-browser/workbench/workbench.html|]
+end
 
 to find.workbench
-  localmake "linux "|/opt/antigravity/resources/app/out/vs/code/electron-browser/workbench/workbench.html|
-
-  if (check.file :linux) [output :linux]
-  output "NULL
+  ;; First existing path or [] (stdlib find sentinel).
+  output (find "filep (wb.candidates))
 end
+
+to product.json.path :wb
+  ;; <app>/out/vs/code/electron-browser/workbench/workbench.html
+  ;;   -> <app>/product.json
+  output (word (strip.suffix :wb
+                 "|out/vs/code/electron-browser/workbench/workbench.html|)
+               "|product.json|)
+end
+
+
+;;; payload (the "all"-mode IIFE; ported from .js:43-213)
+;;; Vbar escape rules:
+;;;   payload "\"  -> source "\\"   (single \X drops the backslash)
+;;;   payload "|"  -> source "\|"   (the only char that needs escape via \)
+;;; Cosmetic blank lines in the JS source are dropped here -- the resulting
+;;; injection is functionally identical, just denser.
 
 to generate.injection :mode
-  output [
-    |<script>|
+  ;; :mode reserved for per-feature gating; today only "all" is implemented.
+  ;; Lines joined with \n via reduce reproduces the original byte stream.
+  if not (equalp :mode "all) [(throw "error [only "all" mode is implemented])]
+  output (reduce [(word ?1 (char 10) ?2)] [
+    |<!-- Antigravity Auto-Retry Patch Start -->|
+    |<script type="text/javascript">|
     |(function() {|
-    |  const clickedButtons = new WeakSet();|
-    |  const SELECTOR = 'button, a.monaco-button';|
-    |  setInterval(() => {|
-    |    /* JS Injection Logic Omitted for Turtle Sanity */|
-    |  }, 100);|
+    |    console.log("Antigravity Auto-Retry: Direct Injection successful.");|
+    |    const clickedButtons = new WeakSet();|
+    |    // Word-boundary match — avoids "Truncate" matching "run",|
+    |    // "Resend" matching "send", "disallow" matching "allow", etc.|
+    |    const RETRY_RE  = /\\b(?:retry\|try\\s+again\|wiederholen)\\b/i;|
+    |    const ALLOW_RE  = /\\ballow\\b/i;|
+    |    const RUN_RE    = /\\brun\\b/i;|
+    |    const CANCEL_RE = /\\bcancel\\b/i;|
+    |    const SEND_RE   = /\\bsend\\b/i;|
+    |    const CLICKABLE_SELECTOR = 'button, a.monaco-button, div.monaco-button';|
+    |    function buttonText(el) {|
+    |        return (el.getAttribute('aria-label') \|\| el.getAttribute('title') \|\| el.textContent \|\| '');|
+    |    }|
+    |    function matches(el, re) {|
+    |        return re.test(buttonText(el));|
+    |    }|
+    |    function findAnyButton(re) {|
+    |        for (const el of document.querySelectorAll(CLICKABLE_SELECTOR)) {|
+    |            if (matches(el, re)) return el;|
+    |        }|
+    |        return null;|
+    |    }|
+    |    function findFreshEnabledButton(re, buttons) {|
+    |        for (const el of buttons) {|
+    |            if (el.disabled) continue;|
+    |            if (clickedButtons.has(el)) continue;|
+    |            if (matches(el, re)) return el;|
+    |        }|
+    |        return null;|
+    |    }|
+    |    let runningCounter = 0;|
+    |    let hasSeenDots = false;|
+    |    let isHandlingSequence = false;|
+    |    let lastRecoveryAt = 0;|
+    |    const RECOVERY_COOLDOWN_MS = 60000;|
+    |    function setInputValue(selector, value) {|
+    |        const input = document.querySelector(selector);|
+    |        if (!input) return false;|
+    |        input.focus();|
+    |        input.value = value;|
+    |        input.dispatchEvent(new Event('input', { bubbles: true }));|
+    |        input.dispatchEvent(new Event('change', { bubbles: true }));|
+    |        return true;|
+    |    }|
+    |    async function executeRecoverySequence() {|
+    |        if (isHandlingSequence) return;|
+    |        isHandlingSequence = true;|
+    |        lastRecoveryAt = Date.now();|
+    |        console.log('Antigravity Auto-Retry: "Running" state detected for > 30s. Executing recovery...');|
+    |        try {|
+    |            const cancelButton = findAnyButton(CANCEL_RE);|
+    |            if (!cancelButton) {|
+    |                // No Cancel button visible — the "Running" match is almost|
+    |                // certainly stale text in chat history, not an active task.|
+    |                // Skip the rest to avoid spuriously sending "continue".|
+    |                console.log('Antigravity Auto-Retry: No Cancel button found; skipping recovery (likely false positive).');|
+    |                return;|
+    |            }|
+    |            console.log('Antigravity Auto-Retry: Clicking Cancel button.');|
+    |            cancelButton.click();|
+    |            await new Promise(r => setTimeout(r, 3000));|
+    |            if (setInputValue('textarea[placeholder*="Ask anything" i], input[placeholder*="Ask anything" i]', 'continue')) {|
+    |                console.log('Antigravity Auto-Retry: Input "continue" set.');|
+    |            }|
+    |            await new Promise(r => setTimeout(r, 3000));|
+    |            const sendButton = findAnyButton(SEND_RE);|
+    |            if (sendButton) {|
+    |                console.log('Antigravity Auto-Retry: Clicking Send button.');|
+    |                sendButton.click();|
+    |            }|
+    |        } catch (e) {|
+    |            console.error('Antigravity Auto-Retry: Error during recovery sequence:', e);|
+    |        } finally {|
+    |            runningCounter = 0;|
+    |            hasSeenDots = false;|
+    |            isHandlingSequence = false;|
+    |        }|
+    |    }|
+    |    function tick() {|
+    |        try {|
+    |            const buttons = document.querySelectorAll('button, a.monaco-button');|
+    |            const retryButton = findFreshEnabledButton(RETRY_RE, buttons);|
+    |            if (retryButton) {|
+    |                console.log("Antigravity Auto-Retry: Found Retry button. Clicking...");|
+    |                clickedButtons.add(retryButton);|
+    |                retryButton.click();|
+    |            }|
+    |            const allowButton = findFreshEnabledButton(ALLOW_RE, buttons);|
+    |            if (allowButton) {|
+    |                console.log("Antigravity Auto-Retry: Found Allow button. Clicking...");|
+    |                clickedButtons.add(allowButton);|
+    |                allowButton.click();|
+    |            }|
+    |            const runButton = findFreshEnabledButton(RUN_RE, buttons);|
+    |            if (runButton) {|
+    |                console.log("Antigravity Auto-Retry: Found Run button. Clicking...");|
+    |                clickedButtons.add(runButton);|
+    |                runButton.click();|
+    |            }|
+    |            if (!isHandlingSequence) {|
+    |                const bodyText = document.body.innerText \|\| '';|
+    |                const hasDots = /Running[.]{1,3}/.test(bodyText);|
+    |                const hasPlain = bodyText.includes('Running');|
+    |                if (hasDots) hasSeenDots = true;|
+    |                if (hasDots \|\| (hasSeenDots && hasPlain)) {|
+    |                    runningCounter++;|
+    |                    if (runningCounter >= 300) { // 30s at 100ms|
+    |                        if (Date.now() - lastRecoveryAt >= RECOVERY_COOLDOWN_MS) {|
+    |                            executeRecoverySequence();|
+    |                        } else {|
+    |                            // In cooldown: stop re-triggering every 100ms.|
+    |                            runningCounter = 0;|
+    |                            hasSeenDots = false;|
+    |                        }|
+    |                    }|
+    |                } else {|
+    |                    runningCounter = 0;|
+    |                    hasSeenDots = false;|
+    |                }|
+    |            }|
+    |        } catch (e) {|
+    |            console.error("Antigravity Auto-Retry loop error:", e);|
+    |        }|
+    |    }|
+    |    setInterval(tick, 100);|
     |})();|
-    |</script>|]
+    |</script>|
+    |<!-- Antigravity Auto-Retry Patch End -->|])
 end
 
-to queue.checksum :prod :tmp.html
-  if not (check.file :prod) [stop]
 
-  ;; Native SHA-256 + base64 (no shell-out)
-  localmake "hash (b64.encode (sha256.hash (file.bytes :tmp.html)))
+;;; transformation (pure-Logo splice; no sed -i, no temp roundtrip)
 
-  ;; jq output needs "w -- JSON contains {, }, [ which confuse readlist.
-  localmake "jq_out (shell
-    (se [jq --arg h] :hash
-        "|'.checksums[\"vs/code/electron-browser/workbench/workbench.html\"] = $h'|
-        :prod)
-    "w)
-
-  (write.lines "|/tmp/prod.json| :jq_out)
-  make "writes (lput (list :prod "|/tmp/prod.json|") :writes)
+to csp.append :tail
+  ;; :tail starts with "script-src". Walk to its terminating ";"; if the
+  ;; directive segment lacks 'unsafe-inline', insert it just before that ";".
+  output (invoke y
+    [[self acc rest]
+      ifelse (starts.with :rest "|;|)
+        [ifelse (substringp "|'unsafe-inline'| :acc)
+          [(word :acc :rest)]
+          [(word :acc "| 'unsafe-inline'| :rest)]]
+        [(invoke :self (word :acc (first :rest)) (bf :rest))]]
+    "|| :tail)
 end
+
+to add.csp.inline :html
+  ;; Scope-aware -- the baseline CSP already has 'unsafe-inline' on style-src,
+  ;; so a global substring check is wrong. Walk to "script-src", then scope.
+  if not (substringp "|script-src| :html) [output :html]
+  output (invoke y
+    [[self prefix rest]
+      ifelse (starts.with :rest "|script-src|)
+        [(word :prefix (csp.append :rest))]
+        [(invoke :self (word :prefix (first :rest)) (bf :rest))]]
+    "|| :html)
+end
+
+to inject.body :html :payload
+  ;; Payload carries its own leading/trailing \n; splice raw before </body>.
+  output (splice.before :html "|</body>| :payload)
+end
+
+to patch.html :clean :payload
+  output (inject.body (add.csp.inline :clean) :payload)
+end
+
+to clean.source :wb :bak
+  ;; .bak is the source of truth; fall back to current iff unpatched.
+  if (filep :bak) [output (file.text :bak)]
+  localmake "html (file.text :wb)
+  if (substringp "|Antigravity Auto-Retry Patch| :html) [
+    (throw "error [Already patched but no .bak found -- restore manually])]
+  output :html
+end
+
+
+;;; checksum (jq edits product.json into /tmp/prod.json)
+
+to queue.checksum :prod :patched
+  ;; Logo's shell pipes through /bin/sh -c, so wrap the jq expression in
+  ;; literal single quotes so sh forwards the embedded "..." to jq intact.
+  if not (filep :prod) [stop]
+  localmake "hash (strip.pad (b64.encode (sha256.hash (msg.to.bytes :patched))))
+  localmake "expr "|'.checksums["vs/code/electron-browser/workbench/workbench.html"] = $h'|
+  localmake "jq.out (shell (se [jq --arg h] :hash :expr :prod) "w)
+
+  (write.lines "|/tmp/prod.json| :jq.out)
+  make "writes (lput (list :prod "|/tmp/prod.json|) :writes)
+end
+
+
+;;; orchestration (batch all writes into one sudo prompt)
 
 to build.cmd :writes
-  ;; Convert write-pairs to [cp src dest], join with &&.
+  ;; Convert [[dest src] ...] into a chained `cp src dest && cp ...`.
   if emptyp :writes [output [echo Done]]
   localmake "pair (first :writes)
-
   output (se [cp] (last :pair) (first :pair) [&&] (build.cmd (butfirst :writes)))
 end
 
 to elevate.and.write :writes
   if emptyp :writes [stop]
-  print [!!! The turtle is requesting sudo elevation !!!]
+  print [!!! sudo elevation requested !!!]
   ignore (shell (se [sudo sh -c] (sh.quote (build.cmd :writes))))
 end
 
 to patch.flow :mode :wb :bak :prod :prodbak
   make "writes []
 
-  (ifelse (check.file :bak)
-    [print [Clean backup found.]]
-    [print [No backup found. Queueing backup...]
-      make "writes (lput (list :bak :wb) :writes)])
+  localmake "clean (clean.source :wb :bak)
+  localmake "payload (generate.injection :mode)
+  localmake "patched (patch.html :clean :payload)
 
-  (write.lines "|/tmp/payload.js| (generate.injection :mode))
+  (write.text "|/tmp/workbench.html| :patched)
+  make "writes (lput (list :wb "|/tmp/workbench.html|) :writes)
 
-  localmake "html.tmp "|/tmp/workbench.html|
+  if not (filep :bak) [
+    (write.text "|/tmp/workbench.bak| :clean)
+    make "writes (lput (list :bak "|/tmp/workbench.bak|) :writes)]
 
-  ignore (shell (se [cp] :wb :html.tmp))
-  localmake "sed.arg (word "|'/</\\/body>/r /tmp/payload.js'|")
-  ignore (shell (se [sed -i -e] :sed.arg :html.tmp))
+  if (and (filep :prod) (not (filep :prodbak))) [
+    make "writes (lput (list :prodbak :prod) :writes)]
 
-  make "writes (lput (list :wb :html.tmp) :writes)
-  (queue.checksum :prod :html.tmp)
-
+  (queue.checksum :prod :patched)
   (elevate.and.write :writes)
 end
 
@@ -93,18 +291,16 @@ to main
   print [====================================]
 
   localmake "wb (find.workbench)
-
-  if equalp :wb "NULL [
+  if emptyp :wb [
     print [Error: Antigravity not installed!]
     stop]
 
-  (patch.flow "all :wb (word :wb "|.bak|")
-    "|/opt/antigravity/resources/app/product.json|
-    (word "|/opt/antigravity/resources/app/product.json| "|.bak|"))
+  print (se [Found workbench:] :wb)
+  localmake "prod (product.json.path :wb)
 
-  catch "error [
-    cs pendown repeat 4 [forward 100 right 90]]
-  print [Patch complete. The turtle draws a square and rests.]
+  (patch.flow "all :wb (word :wb "|.bak|)
+                  :prod (word :prod "|.bak|))
+  print [Patch complete.]
 end
 
 (main)

@@ -5,8 +5,8 @@
 ;;;;   print (b64.encode (sha256.hash [72 101 108 108 111]))
 ;;;;   ; -> SGVsbG8=
 ;;;;
-;;;; Depends on: lib.lg (w32, rotr, shr, w32.add,
-;;;;             primep, nprimes, frac32, hex8)
+;;;; Depends on: lib.lg (w32, rotr, shr, w32.add, primep, nprimes,
+;;;;             frac32, hex8, taken, dropn, y)
 
 if not definedp "w32 [load "lib.lg]
 
@@ -64,12 +64,6 @@ end
 
 ;;; message preprocessing
 
-to msg.to.bytes :msg
-  if emptyp :msg [output []]
-  output (fput (ascii (first :msg))
-              (msg.to.bytes (butfirst :msg)))
-end
-
 to sha.pad :bytes
   localmake "bitlen (count :bytes) * 8
 
@@ -82,8 +76,10 @@ to sha.pad :bytes
 end
 
 to sha.pad.zeros :p
-  if (remainder (count :p) 64) = 56 [output :p]
-  output (sha.pad.zeros (lput 0 :p))
+  ;; Pad with zero bytes until length mod 64 == 56 via cascade.
+  output (cascade [(equalp (remainder (count ?) 64) 56)]
+                  [(lput 0 ?)]
+                  :p)
 end
 
 to sha.block.words :blk
@@ -135,19 +131,6 @@ end
 
 ;;; top-level api
 
-to taken :n :lst
-  ;; Take first N elements of a list.
-  if :n = 0 [output []]
-  output (fput (first :lst)
-              (taken :n - 1 (bf :lst)))
-end
-
-to dropn :n :lst
-  ;; Drop first N elements of a list.
-  if :n = 0 [output :lst]
-  output (dropn :n - 1 (bf :lst))
-end
-
 to sha.split.blocks :padded
   if emptyp :padded [output []]
   output (lput (taken 64 :padded)
@@ -160,18 +143,6 @@ to w32.bytes :w
               (bitand (lshift :w -16) 255)
               (bitand (lshift :w -8) 255)
               (bitand :w 255))
-end
-
-to file.bytes :filepath
-  ;; Read a file as a list of bytes.
-  openread :filepath
-  setread  :filepath
-  output (invoke y
-    [[self line]
-      ifelse listp :line
-        [close :filepath []]
-        [(se (msg.to.bytes :line) 10 (invoke :self (readrawline)))]]
-    (readrawline))
 end
 
 to sha256.hash :bytes

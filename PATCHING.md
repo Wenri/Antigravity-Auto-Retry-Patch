@@ -274,3 +274,41 @@ Notes on the injected loop:
 - The `continue` recovery has three guards against spurious firing: the
   `Running...` dotted regex (not just the word), the Cancel-button presence
   check, and the 60 s cooldown after each attempt.
+
+## UCBLogo port (`applyAutoRetryContinueAllowPatch.lg`)
+
+A pure-Logo equivalent for hosts with `ucblogo` and `jq` (Mac/Linux only).
+Functionally equivalent to the `.js` patcher; the embedded IIFE drops the
+JS source's cosmetic blank lines so the produced bytes don't match
+exactly, but each patcher recomputes its own `product.json` checksum so
+integrity holds either way. Notable differences in how it gets there:
+
+- **No platform switch.** `(find "filep (wb.candidates))` returns the first
+  existing path from a candidate list. Mac path is checked first; on Linux
+  it falls back to `/usr/share/antigravity/...` then `/opt/antigravity/...`.
+  `logoplatform` returns `Unix-Nographics` on both Mac and Linux, so we
+  probe instead of branching.
+- **`product.json` path is derived**, not hard-coded — strip the well-known
+  suffix from the workbench path, append `product.json`. Same suffix on
+  Mac (`Resources/app/...`) and Linux (`resources/app/...`).
+- **No `sed` shellout.** HTML splice is `splice.before :hay :needle :insert`
+  (in `lib.lg`), a y-combinator walker. The same primitive does the body
+  injection. The CSP edit uses a scope-aware walker — finds `script-src`,
+  then inserts `'unsafe-inline'` just before that directive's terminating
+  `;` if the directive segment doesn't already include it. (A global
+  `'unsafe-inline'` substring check would falsely match `style-src`'s.)
+- **`jq` is required** for the `product.json` checksum update. Pure-Logo
+  JSON edits would be slow on a 44 KB file with marginal benefit.
+- **`/bin/sh` quoting:** UCBLogo's `shell` pipes through `/bin/sh -c`,
+  which strips `"` from arguments. The jq expression is wrapped in
+  literal single quotes so its embedded `"..."` reaches jq intact.
+- **Mode is `"all"` only** today. The `:mode` parameter is reserved for
+  future per-feature gating.
+- **Reset flow** is not implemented. Use the `.js` patcher's option 9 to
+  restore from `.bak` files.
+
+Style notes shared across `.lg` modules: stdlib higher-order primitives
+(`find`, `cascade`, `reduce`, `map`, `filter`) before custom recursion;
+y-combinator only when stdlib doesn't fit. Multi-arg calls always
+parens-wrapped. One-line guards (`if pred [output X]`). No `~` line
+continuations.

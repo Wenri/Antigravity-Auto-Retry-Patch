@@ -27,6 +27,10 @@ When working with AI agents or long-running tasks in Antigravity, you might enco
 ## Prerequisites
 - **Node.js**: You must have Node.js installed on your system.
 - **Antigravity IDE**: The IDE must be installed.
+- **UCBLogo + jq** (optional): only needed if you want to run the
+  `applyAutoRetryContinueAllowPatch.lg` port. On macOS:
+  `brew install ucblogo jq`. The Logo port is functionally equivalent to
+  the `.js` patcher (Mac/Linux only).
 
 ## Usage
 

@@ -3,13 +3,19 @@
 ;;;; Usage:  load "lib.lg
 ;;;;
 ;;;; Contents:
-;;;;   word/list utilities:  flatten, join.with, join.pipe,
-;;;;                         sh.quote, strip.pad, write.lines
-;;;;   file utilities:       check.file
+;;;;   word/list utilities:  flatten, join.with, join.pipe, sh.quote,
+;;;;                         strip.pad, write.lines, write.text, taken,
+;;;;                         dropn, starts.with, strip.suffix, splice.after,
+;;;;                         splice.before
+;;;;   file utilities:       msg.to.bytes, file.text
 ;;;;   combinator:           y
 ;;;;   32-bit arithmetic:    w32, rotr, shr, w32.add
 ;;;;   math:                 primep, nprimes, frac32
 ;;;;   formatting:           hexn, hex8
+;;;;
+;;;; Built-ins worth remembering (no need to re-roll):
+;;;;   find filter cascade reduce map map.se cond case substringp
+;;;;   filep iseq combine pick remdup remove reverse
 
 
 ;;; word / list utilities
@@ -36,9 +42,10 @@ to sh.quote :lst
 end
 
 to strip.pad :w
-  if emptyp :w [output :w]
-  if equalp (last :w) "= [output (strip.pad (butlast :w))]
-  output :w
+  ;; Drop trailing '=' chars via cascade -- stop when empty or last != '='.
+  output (cascade [(or (emptyp ?) [not equalp (last ?) "=])]
+                  [(butlast ?)]
+                  :w)
 end
 
 to write.lines :file :lines
@@ -48,13 +55,82 @@ to write.lines :file :lines
   close :file
 end
 
+to write.text :file :w
+  ;; Write a single word verbatim, no trailing newline (byte-exact).
+  openwrite :file
+  setwrite  :file
+  type :w
+  close :file
+end
+
+to taken :n :lst
+  ;; First :n elements; polymorphic over word/list via combine.
+  if :n = 0 [output (ifelse (wordp :lst) ["||] [[]])]
+  output (combine (first :lst) (taken :n - 1 (bf :lst)))
+end
+
+to dropn :n :lst
+  if :n = 0 [output :lst]
+  output (dropn :n - 1 (bf :lst))
+end
+
+to starts.with :s :prefix
+  if (count :prefix) > (count :s) [output "false]
+  output (equalp (taken (count :prefix) :s) :prefix)
+end
+
+to strip.suffix :s :suf
+  ;; :s minus its trailing :suf (assumes :s ends with :suf).
+  output (taken ((count :s) - (count :suf)) :s)
+end
+
+to splice.after :hay :needle :insert
+  ;; Insert :insert immediately after the first :needle in :hay.
+  ;; No-op when :needle absent -- caller-friendly for idempotent splices.
+  if not (substringp :needle :hay) [output :hay]
+  localmake "n (count :needle)
+  output (invoke y
+    [[self prefix rest]
+      ifelse (starts.with :rest :needle)
+        [(word :prefix (taken :n :rest) :insert (dropn :n :rest))]
+        [(invoke :self (word :prefix (first :rest)) (bf :rest))]]
+    "|| :hay)
+end
+
+to splice.before :hay :needle :insert
+  ;; Insert :insert immediately before the first :needle in :hay. No-op
+  ;; when :needle absent. Mirror of splice.after.
+  if not (substringp :needle :hay) [output :hay]
+  output (invoke y
+    [[self prefix rest]
+      ifelse (starts.with :rest :needle)
+        [(word :prefix :insert :rest)]
+        [(invoke :self (word :prefix (first :rest)) (bf :rest))]]
+    "|| :hay)
+end
+
 
 ;;; file utilities
 
-to check.file :filepath
-  output (filep :filepath)
+to msg.to.bytes :msg
+  ;; Word -> list of ASCII byte codes, char by char.
+  if emptyp :msg [output []]
+  output (fput (ascii (first :msg))
+              (msg.to.bytes (butfirst :msg)))
 end
 
+to file.text :path
+  ;; Read whole file as one word, byte-exact (no newline injection).
+  ;; readchars returns up to N chars or [] at eof; chunk via y combinator.
+  openread :path
+  setread :path
+  output (invoke y
+    [[self acc chunk]
+      ifelse listp :chunk
+        [close :path :acc]
+        [(invoke :self (word :acc :chunk) (readchars 65536))]]
+    "|| (readchars 65536))
+end
 
 ;;; combinator
 
