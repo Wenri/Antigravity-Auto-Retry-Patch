@@ -1,0 +1,22 @@
+;;;; src/checksum.lg -- product.json checksum update
+;;;; Author: Bingchen Gong
+;;;;
+;;;; Depends on: lib/lib.lg (strip.pad, msg.to.bytes, write.text)
+;;;;             lib/sha256.lg (sha256.hash)
+;;;;             lib/base64.lg (b64.encode)
+;;;;             lib/json.lg (json.parse, json.get, json.set, json.serialize)
+
+to queue.checksum :prod :patched
+  ;; Pure Logo: parse, set checksum, serialize. Replaces a previous jq
+  ;; shellout. The .lg port now needs no external dependency beyond ucblogo.
+  if not (filep :prod) [stop]
+  localmake "hash (strip.pad (b64.encode (sha256.hash (msg.to.bytes :patched))))
+  localmake "doc (json.parse (file.text :prod))
+  localmake "cs (json.get :doc "checksums)
+  ignore (json.set :cs
+                   "|vs/code/electron-browser/workbench/workbench.html|
+                   :hash)
+
+  (write.text "|/tmp/prod.json| (json.serialize :doc))
+  make "writes (lput (list :prod "|/tmp/prod.json|) :writes)
+end

@@ -1,13 +1,19 @@
 # Antigravity Auto-Retry & Recovery Patch
 
-This utility provides a robust, cross-platform patch for the **Antigravity IDE** (VS Code based) that automates common UI interactions to keep your AI agents running smoothly.
+A **pure UCBLogo** patcher for the **Antigravity IDE** (VS Code based) that
+automates common UI interactions to keep your AI agents running smoothly.
 
 ## Why is this useful?
-When working with AI agents or long-running tasks in Antigravity, you might encounter transient network failures, quota limits, or "Running" hangups. This script automates the process of clicking "Retry", "Allow", and "Run" buttons, and even handles situations where the agent appears to be stuck.
+When working with AI agents or long-running tasks in Antigravity, you might
+encounter transient network failures, quota limits, or "Running" hangups.
+This patch injects a lightweight script that automatically clicks "Retry",
+"Allow", and "Run" buttons, and triggers a recovery sequence when the agent
+appears stuck.
 
 ## Features
 - **Auto-Retry**: Automatically clicks "Retry", "Try Again", or "Wiederholen" buttons.
-- **Auto-Continue (Recovery Sequence)**: Monitors the "Running..." state. If it persists for more than 30 seconds, the script automatically:
+- **Auto-Continue (Recovery Sequence)**: Monitors the "Running…" state.
+  If it persists for more than 30 seconds, the patcher automatically:
   1. Clicks **Cancel**.
   2. Waits 3 seconds.
   3. Types **"continue"** into the chat input.
@@ -15,64 +21,87 @@ When working with AI agents or long-running tasks in Antigravity, you might enco
   5. Clicks **Send**.
 - **Auto-Allow**: Automatically clicks "Allow" buttons.
 - **Auto-Run**: Automatically clicks "Run" buttons.
-- **Interactive Configuration**: Choose exactly which features to enable during installation.
-- **Cross-Platform Support**: Works on Windows, Linux, and macOS.
+- **Cross-Platform Support**: Works on macOS and Linux.
 - **Auto-Detection**: Automatically finds the Antigravity installation path.
-- **Safety First**: 
+- **Safety First**:
   - Automatically creates a backup (`workbench.html.bak`) before making changes.
   - Safely modifies the Content Security Policy (CSP) to allow the injection.
-  - Handles elevation (sudo/Admin) elegantly.
-  - Backs up `product.json` to `product.json.bak` and updates its SHA-256 checksum for `workbench.html` automatically, so Antigravity's integrity check does not warn "Your Antigravity installation appears to be corrupt" after patching.
+  - Backs up `product.json` to `product.json.bak` and updates its SHA-256
+    checksum for `workbench.html` automatically, so Antigravity's integrity
+    check does not warn after patching.
 
 ## Prerequisites
-- **Node.js**: You must have Node.js installed on your system.
+- **UCBLogo**: On macOS: `brew install ucblogo`.
 - **Antigravity IDE**: The IDE must be installed.
-- **UCBLogo** (optional): only needed if you want to run the
-  `applyAutoRetryContinueAllowPatch.lg` port. On macOS: `brew install ucblogo`.
-  The Logo port is functionally equivalent to the `.js` patcher (Mac/Linux only)
-  and ships with its own pure-Logo JSON parser (`json.lg`) -- no `jq` required.
+
+## Project Structure
+
+| File | Purpose |
+|------|---------|
+| `applyAutoRetryContinueAllowPatch.lg` | Entry point — loads modules and runs `main` |
+| `src/locate.lg` | Install location probing (find workbench.html) |
+| `src/payload.lg` | Injection script generation (the browser-side IIFE) |
+| `src/transform.lg` | HTML transformation (CSP modification, body injection) |
+| `src/checksum.lg` | product.json SHA-256 checksum update |
+| `src/patch.lg` | Orchestration (write batching, sudo elevation, patch flow) |
+| `lib/json.lg` | Pure-Logo JSON parser/serializer (prototypal object system) |
+| `lib/lib.lg` | Reusable primitives: word/list utils, Y combinator, SHA-256, hex |
+| `lib/sha256.lg` | SHA-256 hash (pure Logo, 32-bit word arithmetic) |
+| `lib/base64.lg` | Base64 encoder |
+| `docs/PATCHING.md` | Detailed walkthrough of the patching logic |
+| `docs/` | Reference implementations (JS, Haskell) and documentation |
 
 ## Usage
 
 ### 1. Run the patch
-Open your terminal or command prompt in the folder containing `applyAutoRetryContinueAllowPatch.js` and execute:
-
-#### **Linux / macOS**
 ```bash
-sudo node applyAutoRetryContinueAllowPatch.js
+sudo ucblogo applyAutoRetryContinueAllowPatch.lg
 ```
-*(The script will also attempt to call `sudo` internally if you forget, but it's recommended to run it with privileges directly.)*
+The patcher auto-detects the Antigravity installation, backs up the
+original files, injects the automation script, and updates the
+`product.json` checksum — all in one step.
 
-#### **Windows**
-1. Right-click your terminal (PowerShell or Command Prompt) and select **"Run as Administrator"**.
-2. Run:
-   ```cmd
-   node applyAutoRetryContinueAllowPatch.js
-   ```
-
-### 2. Configure your options
-The script will present a menu. Choose the desired combination of features:
-1) All (Retry + Continue + Allow + Run) [Default]
-2) Retry + Continue + Allow
-3) Retry + Allow
-...and more.
-
-### 3. Restart Antigravity
-After the script reports success, simply restart the Antigravity IDE. The selected logic will now be active in the workbench.
+### 2. Restart Antigravity
+After the patcher reports success, restart the IDE. The automation logic
+will be active in the workbench.
 
 ## How it Works
-The script injects a small, lightweight JavaScript snippet into the `workbench.html` file. This snippet:
+The patcher injects a small JavaScript snippet into `workbench.html`. This
+snippet:
 1. Runs in the main UI thread.
-2. Scans for buttons and monitors state every **100ms**.
-3. Checks for specific button text (case-insensitive) and uses `WeakSet` to ensure each button is clicked only once when appropriate.
-4. Tracks the duration of the "Running" state to trigger the recovery sequence if a timeout is reached.
+2. Scans for buttons and monitors state every **100 ms**.
+3. Checks for specific button text (case-insensitive) and uses `WeakSet` to
+   ensure each button is clicked only once when appropriate.
+4. Tracks the duration of the "Running" state to trigger the recovery
+   sequence if a timeout is reached.
+
+See [docs/PATCHING.md](docs/PATCHING.md) for a full pseudocode walkthrough.
 
 ## Reverting Changes
-The easiest way is to run the script again and pick option **9) Reset all**. This restores both `workbench.html` and `product.json` from their `.bak` files automatically.
-
-If you prefer to revert manually:
-1. Locate `workbench.html.bak` next to `workbench.html` and `product.json.bak` next to `product.json` (under `resources/app/` on Linux/Windows, `Contents/Resources/app/` on macOS).
+Use the original JS patcher's reset option, or manually restore from the
+`.bak` files:
+1. Locate `workbench.html.bak` and `product.json.bak` (under
+   `Contents/Resources/app/` on macOS, `resources/app/` on Linux).
 2. Replace each patched file with its `.bak` counterpart.
 
+## Implementation Notes
+- **No external dependencies** beyond the UCBLogo runtime — no Node.js,
+  no `jq`, no `sed`.
+- **Pure-Logo JSON** via a prototypal object system (`something` / `kindof` /
+  `oneof` / `ask`). Objects are instances with one slot per key; arrays are
+  native Logo lists; `null` is a singleton instance.
+- **SHA-256 and Base64** are implemented from scratch in Logo for checksum
+  computation.
+- **Functional style**: stdlib higher-order primitives (`find`, `cascade`,
+  `reduce`, `map`, `filter`) before custom recursion; Y combinator only when
+  stdlib doesn't fit. Multi-arg calls always parens-wrapped. One-line guards
+  (`if pred [output X]`). No `~` line continuations.
+
+## Reference Implementations
+The `docs/` directory contains the original JavaScript and Haskell
+implementations that this Logo port was derived from, along with the
+patching logic walkthrough. They are kept for reference only and are
+not required to run the patcher.
+
 ## License
-Distributed under the **MIT License**. See `LICENSE` for more information.
+Distributed under the **GNU General Public License v3.0**. See `LICENSE` for more information.

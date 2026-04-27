@@ -1,6 +1,7 @@
 ;;;; lib.lg -- Reusable UCBLogo Primitives
+;;;; Author: Bingchen Gong
 ;;;;
-;;;; Usage:  load "lib.lg
+;;;; Usage:  load "lib/lib.lg
 ;;;;
 ;;;; Contents:
 ;;;;   word/list utilities:  flatten, join.with, join.pipe, sh.quote,

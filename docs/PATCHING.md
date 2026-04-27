@@ -1,7 +1,11 @@
 # Patching Logic (Pseudocode)
 
-Host-side walkthrough of `applyAutoRetryContinueAllowPatch`. The browser-side
-code produced by `generateInjectionScript()` is intentionally left out — read it directly in the source.
+Host-side walkthrough of the pure-Logo `applyAutoRetryContinueAllowPatch.lg`
+patcher. The browser-side code produced by `generateInjectionScript()` is
+intentionally left out — read it directly in the source.
+
+Reference implementations in JavaScript and Haskell are kept in `docs/`
+for historical context.
 
 ## Entry point
 
@@ -275,14 +279,10 @@ Notes on the injected loop:
   `Running...` dotted regex (not just the word), the Cancel-button presence
   check, and the 60 s cooldown after each attempt.
 
-## UCBLogo port (`applyAutoRetryContinueAllowPatch.lg`)
+## Implementation notes (`applyAutoRetryContinueAllowPatch.lg`)
 
-A pure-Logo equivalent for hosts with `ucblogo` (Mac/Linux only) -- no
-external dependencies beyond the Logo runtime itself. Functionally
-equivalent to the `.js` patcher; the embedded IIFE drops the JS source's
-cosmetic blank lines so the produced bytes don't match exactly, but each
-patcher recomputes its own `product.json` checksum so integrity holds
-either way. Notable differences in how it gets there:
+The patcher is pure Logo — no external dependencies beyond the UCBLogo
+runtime (Mac/Linux). Notable design choices:
 
 - **No platform switch.** `(find "filep (wb.candidates))` returns the first
   existing path from a candidate list. Mac path is checked first; on Linux
@@ -293,22 +293,21 @@ either way. Notable differences in how it gets there:
   suffix from the workbench path, append `product.json`. Same suffix on
   Mac (`Resources/app/...`) and Linux (`resources/app/...`).
 - **No `sed` shellout.** HTML splice is `splice.before :hay :needle :insert`
-  (in `lib.lg`), a y-combinator walker. The same primitive does the body
+  (in `lib/lib.lg`), a y-combinator walker. The same primitive does the body
   injection. The CSP edit uses a scope-aware walker — finds `script-src`,
   then inserts `'unsafe-inline'` just before that directive's terminating
   `;` if the directive segment doesn't already include it. (A global
   `'unsafe-inline'` substring check would falsely match `style-src`'s.)
-- **Pure-Logo JSON edits via `json.lg`.** A small library built on
+- **Pure-Logo JSON edits via `lib/json.lg`.** A small library built on
   UCBLogo's prototypal object system (`something` / `kindof` / `oneof` /
   `ask`). JSON objects are instances of `:json.object` with one slot per
   key; arrays are native Logo lists (`.setfirst` / `.setbf` make nested
   mutation work without a wrapper class); `null` is a singleton instance.
-  The parser is itself a stateful object (`:json.parser`). See `json.lg`
+  The parser is itself a stateful object (`:json.parser`). See `lib/json.lg`
   for the full design notes.
 - **Mode is `"all"` only** today. The `:mode` parameter is reserved for
   future per-feature gating.
-- **Reset flow** is not implemented. Use the `.js` patcher's option 9 to
-  restore from `.bak` files.
+- **Reset flow** is not implemented. Restore from `.bak` files manually.
 
 Style notes shared across `.lg` modules: stdlib higher-order primitives
 (`find`, `cascade`, `reduce`, `map`, `filter`) before custom recursion;

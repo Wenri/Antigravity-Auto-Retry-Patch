@@ -1,13 +1,14 @@
 ;;;; base64.lg -- Base64 Encoding (RFC 4648)
+;;;; Author: Bingchen Gong
 ;;;;
 ;;;; Usage:
-;;;;   load "base64.lg
+;;;;   load "lib/base64.lg
 ;;;;   print (b64.encode [72 101 108 108 111])
 ;;;;   ; -> SGVsbG8=
 ;;;;
 ;;;; Depends on: lib.lg (y)
 
-if not definedp "y [load "lib.lg]
+if not definedp "y [load "lib/lib.lg]
 
 
 ;;; encoding primitives

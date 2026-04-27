@@ -1,0 +1,25 @@
+;;;; src/locate.lg -- Install location probing
+;;;; Author: Bingchen Gong
+;;;;
+;;;; Depends on: lib/lib.lg (strip.suffix)
+
+to wb.candidates
+  ;; Mac first; same suffix-strip in product.json.path covers both.
+  output [
+    |/Applications/Antigravity.app/Contents/Resources/app/out/vs/code/electron-browser/workbench/workbench.html|
+    |/usr/share/antigravity/resources/app/out/vs/code/electron-browser/workbench/workbench.html|
+    |/opt/antigravity/resources/app/out/vs/code/electron-browser/workbench/workbench.html|]
+end
+
+to find.workbench
+  ;; First existing path or [] (stdlib find sentinel).
+  output (find "filep (wb.candidates))
+end
+
+to product.json.path :wb
+  ;; <app>/out/vs/code/electron-browser/workbench/workbench.html
+  ;;   -> <app>/product.json
+  output (word (strip.suffix :wb
+                 "|out/vs/code/electron-browser/workbench/workbench.html|")
+               "|product.json|")
+end

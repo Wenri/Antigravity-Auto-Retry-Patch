@@ -1,14 +1,15 @@
 ;;;; sha256.lg -- Pure UCBLogo SHA-256 Implementation
+;;;; Author: Bingchen Gong
 ;;;;
 ;;;; Usage:
-;;;;   load "sha256.lg
+;;;;   load "lib/sha256.lg
 ;;;;   print (b64.encode (sha256.hash [72 101 108 108 111]))
 ;;;;   ; -> SGVsbG8=
 ;;;;
 ;;;; Depends on: lib.lg (w32, rotr, shr, w32.add, primep, nprimes,
 ;;;;             frac32, hex8, taken, dropn, y)
 
-if not definedp "w32 [load "lib.lg]
+if not definedp "w32 [load "lib/lib.lg]
 
 
 ;;; sha-256 round functions

@@ -1,0 +1,42 @@
+;;;; src/patch.lg -- Orchestration (batch writes, sudo elevation, patch flow)
+;;;; Author: Bingchen Gong
+;;;;
+;;;; Depends on: lib/lib.lg (sh.quote, write.text)
+;;;;             src/locate.lg (find.workbench, product.json.path)
+;;;;             src/payload.lg (generate.injection)
+;;;;             src/transform.lg (patch.html, clean.source)
+;;;;             src/checksum.lg (queue.checksum)
+
+to build.cmd :writes
+  ;; Convert [[dest src] ...] into a chained `cp src dest && cp ...`.
+  if emptyp :writes [output [echo Done]]
+  localmake "pair (first :writes)
+  output (se [cp] (last :pair) (first :pair) [&&] (build.cmd (butfirst :writes)))
+end
+
+to elevate.and.write :writes
+  if emptyp :writes [stop]
+  print [!!! sudo elevation requested !!!]
+  ignore (shell (se [sudo sh -c] (sh.quote (build.cmd :writes))))
+end
+
+to patch.flow :mode :wb :bak :prod :prodbak
+  make "writes []
+
+  localmake "clean (clean.source :wb :bak)
+  localmake "payload (generate.injection :mode)
+  localmake "patched (patch.html :clean :payload)
+
+  (write.text "|/tmp/workbench.html| :patched)
+  make "writes (lput (list :wb "|/tmp/workbench.html|") :writes)
+
+  if not (filep :bak) [
+    (write.text "|/tmp/workbench.bak| :clean)
+    make "writes (lput (list :bak "|/tmp/workbench.bak|") :writes)]
+
+  if (and (filep :prod) (not (filep :prodbak))) [
+    make "writes (lput (list :prodbak :prod) :writes)]
+
+  (queue.checksum :prod :patched)
+  (elevate.and.write :writes)
+end

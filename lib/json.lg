@@ -1,7 +1,8 @@
 ;;;; json.lg -- Pure UCBLogo JSON via the prototypal object system
+;;;; Author: Bingchen Gong
 ;;;;
 ;;;; Usage:
-;;;;   load "json.lg
+;;;;   load "lib/json.lg
 ;;;;   make "doc (json.parse "|{"x":1,"y":[2,3]}|)
 ;;;;   print (json.serialize :doc)
 ;;;;   (json.set :doc "x 42)
@@ -22,7 +23,7 @@
 ;;;;
 ;;;; Depends on: lib.lg (file.text, taken, dropn, hexn, y, splice.*)
 
-if not definedp "splice.after [load "lib.lg]
+if not definedp "splice.after [load "lib/lib.lg]
 
 make "caseignoredp "false
 

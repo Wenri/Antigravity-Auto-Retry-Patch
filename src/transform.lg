@@ -1,0 +1,47 @@
+;;;; src/transform.lg -- HTML transformation (CSP + body injection)
+;;;; Author: Bingchen Gong
+;;;;
+;;;; Depends on: lib/lib.lg (y, starts.with, substringp, splice.before, file.text)
+
+to csp.append :tail
+  ;; :tail starts with "script-src". Walk to its terminating ";"; if the
+  ;; directive segment lacks 'unsafe-inline', insert it just before that ";".
+  output (invoke y
+    [[self acc rest]
+      ifelse (starts.with :rest "|;|)
+        [ifelse (substringp "|'unsafe-inline'| :acc)
+          [(word :acc :rest)]
+          [(word :acc "| 'unsafe-inline'| :rest)]]
+        [(invoke :self (word :acc (first :rest)) (bf :rest))]]
+    "|| :tail)
+end
+
+to add.csp.inline :html
+  ;; Scope-aware -- the baseline CSP already has 'unsafe-inline' on style-src,
+  ;; so a global substring check is wrong. Walk to "script-src", then scope.
+  if not (substringp "|script-src| :html) [output :html]
+  output (invoke y
+    [[self prefix rest]
+      ifelse (starts.with :rest "|script-src|)
+        [(word :prefix (csp.append :rest))]
+        [(invoke :self (word :prefix (first :rest)) (bf :rest))]]
+    "|| :html)
+end
+
+to inject.body :html :payload
+  ;; Payload carries its own leading/trailing \n; splice raw before </body>.
+  output (splice.before :html "|</body>| :payload)
+end
+
+to patch.html :clean :payload
+  output (inject.body (add.csp.inline :clean) :payload)
+end
+
+to clean.source :wb :bak
+  ;; .bak is the source of truth; fall back to current iff unpatched.
+  if (filep :bak) [output (file.text :bak)]
+  localmake "html (file.text :wb)
+  if (substringp "|Antigravity Auto-Retry Patch| :html) [
+    (throw "error [Already patched but no .bak found -- restore manually])]
+  output :html
+end
