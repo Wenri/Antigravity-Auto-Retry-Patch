@@ -256,13 +256,21 @@ make "json.escapes (list
   (list 12 "f))        ;; FF
 
 to json.escape.char :c
-  ;; ascii gives the logical code for vbar-encoded specials ("|"| -> 34);
-  ;; rawascii gives the true byte for control chars (char 3 -> 3, not 32).
-  ;; Table entries use logical codes, so look up via ascii; the < 32 guard
-  ;; needs the raw byte to catch control chars that ascii would remap.
+  ;; Use ascii everywhere -- it returns the logical character code regardless
+  ;; of whether :c is a sentinel-form word (from vbar source) or a raw byte
+  ;; (from file.text). rawascii returns the storage byte, which for vbar
+  ;; specials is a low sentinel (e.g. raw 21 for "/") -- using it would
+  ;; falsely u-encode every printable special.
+  ;;
+  ;; The < 32 fallback covers real control bytes that aren't in the named
+  ;; table (BEL, VT, etc.). For real control chars built via (char N) with
+  ;; N in 1..31 not remapped to a sentinel, ascii returns N. For Logo's
+  ;; remapped sentinels, ascii returns the printable code (>= 32) so this
+  ;; branch correctly skips them. ascii(char N) for N in {1,2,7} returns
+  ;; the byte; the test catches them.
   localmake "hit (find [equalp (ascii :c) first ?] :json.escapes)
   if not (emptyp :hit) [output (word (char 92) (last :hit))]
-  localmake "n (rawascii :c)
+  localmake "n (ascii :c)
   if :n < 32 [output (word (char 92) "|u00| (hexn 2 :n))]
   output :c
 end
@@ -378,16 +386,19 @@ end
 
 ask :json.parser [to parse.string]
 (expect "|"|)
-output (parse.string.body)
+output (apply "word (parse.string.chars))
 end
 
-ask :json.parser [to parse.string.body]
-;; Direct recursion: read a char, prepend to recursive remainder.
+ask :json.parser [to parse.string.chars]
+;; Returns a list of char-words; caller does (apply word ...) once at the
+;; end. Cons via fput is O(1) per char, so total O(n) -- prior form built
+;; intermediate suffix words via (word :_c rest) at every step, which was
+;; O(n^2). apply "word [] returns the empty word, so empty strings are fine.
 if (eof) [(throw "error [json: unterminated string])]
 localmake "_c (next)
-if (equalp :_c "|"|) [output "||]
-if (equalp :_c (char 92)) [output (word (parse.escape) (parse.string.body))]
-output (word :_c (parse.string.body))
+if (equalp :_c "|"|) [output []]
+if (equalp :_c (char 92)) [output (fput (parse.escape) (parse.string.chars))]
+output (fput :_c (parse.string.chars))
 end
 
 ask :json.parser [to parse.escape]
@@ -409,19 +420,21 @@ output (char (parseint16 (word :_h1 :_h2 :_h3 :_h4)))
 end
 
 ask :json.parser [to parse.number]
-localmake "_buf (parse.number.chars)
+localmake "_buf (apply "word (parse.number.chars))
 if not (numberp :_buf) [
   (throw "error (sentence [json: bad number] :_buf))]
 output (:_buf + 0)
 end
 
 ask :json.parser [to parse.number.chars]
-;; Direct recursion: prepend a number-char and recurse, stop at non-digit.
-;; char(ascii(c)) normalizes vbar-encoded chars (rawascii ≠ ascii) so that
-;; the resulting word passes numberp, which checks raw byte values.
-if (eof) [output "||]
-if not (memberp (peek) "|0123456789-+.eE|) [output "||]
-output (word (char (ascii (next))) (parse.number.chars))
+;; Returns a list of normalized digit chars; caller (apply word ...).
+;; (char (ascii c)) converts Logo's syntax-special sentinel bytes (e.g.
+;; raw 19 for "-", 14 for "+") to their raw ASCII form (45, 43). numberp
+;; only accepts raw bytes; without this round-trip a vbar-source input
+;; like "|-5| would parse as a non-numeric word.
+if (eof) [output []]
+if not (memberp (peek) "|0123456789-+.eE|) [output []]
+output (fput (char (ascii (next))) (parse.number.chars))
 end
 
 ask :json.parser [to parse.literal :_word :_value]
