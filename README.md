@@ -40,7 +40,7 @@ appears stuck.
 
 | File | Purpose |
 |------|---------|
-| `applyAutoRetryContinueAllowPatch.lg` | Entry point — loads modules and runs `main` |
+| `applyAutoRetryContinueAllowPatch.lg` | Entry point — `good bye` |
 | `src/locate.lg` | Install location probing (find workbench.html) |
 | `src/payload.lg` | Injection script generation (the browser-side IIFE) |
 | `src/transform.lg` | HTML transformation (CSP modification, body injection) |

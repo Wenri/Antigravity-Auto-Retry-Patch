@@ -30,7 +30,7 @@ load "src/patch.lg
 
 ;;; entry point
 
-to main
+to good
   print [====================================]
   print [ ANTIGRAVITY PATCHER - LOGO EDITION ]
   print [====================================]
@@ -48,5 +48,4 @@ to main
   print [Patch complete.]
 end
 
-(main)
-bye
+good bye
