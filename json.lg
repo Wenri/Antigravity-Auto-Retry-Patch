@@ -242,18 +242,27 @@ to json.string.escape.body :s
   output (map "json.escape.char :s)
 end
 
+;; Shared escape table: each pair is [ascii-code escape-letter].
+;; Both json.escape.char (encoder) and parse.escape (decoder) pull from
+;; this table. Adding one row covers both directions.
+make "json.escapes (list
+  (list 34 "|"|)      ;; "
+  (list 92 (char 92))  ;; \  (char 92 avoids vbar quoting pitfalls)
+  (list 10 "n)         ;; LF
+  (list 13 "r)         ;; CR
+  (list  9 "t)         ;; HT
+  (list  8 "b)         ;; BS
+  (list 12 "f))        ;; FF
+
 to json.escape.char :c
-  ;; Escape outputs are built via (char 92) for the backslash because vbar
-  ;; reads "|\n| as literal "n" -- vbar drops backslash from any non-pipe.
-  localmake "bs (char 92)
-  if (equalp :c "|"|)  [output (word :bs "|"|)]
-  if (equalp :c :bs)   [output (word :bs :bs)]
-  if (equalp (ascii :c) 10) [output (word :bs "n)]
-  if (equalp (ascii :c) 13) [output (word :bs "r)]
-  if (equalp (ascii :c) 9)  [output (word :bs "t)]
-  if (equalp (ascii :c) 8)  [output (word :bs "b)]
-  if (equalp (ascii :c) 12) [output (word :bs "f)]
-  if (ascii :c) < 32 [output (word :bs "|u00| (hexn 2 (ascii :c)))]
+  ;; ascii gives the logical code for vbar-encoded specials ("|"| -> 34);
+  ;; rawascii gives the true byte for control chars (char 3 -> 3, not 32).
+  ;; Table entries use logical codes, so look up via ascii; the < 32 guard
+  ;; needs the raw byte to catch control chars that ascii would remap.
+  localmake "hit (find [equalp (ascii :c) first ?] :json.escapes)
+  if not (emptyp :hit) [output (word (char 92) (last :hit))]
+  localmake "n (rawascii :c)
+  if :n < 32 [output (word (char 92) "|u00| (hexn 2 :n))]
   output :c
 end
 
@@ -312,14 +321,14 @@ end
 ask :json.parser [to parse.value]
 (skip.ws)
 if (eof) [(throw "error [json: unexpected end of input])]
-localmake "_c (peek)
-if (equalp :_c "|{|) [output (parse.object)]
-if (equalp :_c "|[|) [output (parse.array)]
-if (equalp :_c "|"|) [output (parse.string)]
-if (equalp :_c "|t|) [output (parse.literal "|true|  "true)]
-if (equalp :_c "|f|) [output (parse.literal "|false| "false)]
-if (equalp :_c "|n|) [output (parse.literal "|null|  :json.null)]
-output (parse.number)
+output (case (peek) [
+  [[|{|]      (parse.object)]
+  [[|[|]      (parse.array)]
+  [[|"|]      (parse.string)]
+  [[t]        (parse.literal "|true|  "true)]
+  [[f]        (parse.literal "|false| "false)]
+  [[n]        (parse.literal "|null|  :json.null)]
+  [else       (parse.number)]])
 end
 
 ask :json.parser [to parse.object]
@@ -382,15 +391,10 @@ end
 
 ask :json.parser [to parse.escape]
 localmake "_c (next)
-if (equalp :_c "|"|)  [output "|"|]
-if (equalp :_c "|\\|) [output "|\\|]
-if (equalp :_c "|/|)  [output "|/|]
-if (equalp :_c "|n|)  [output (char 10)]
-if (equalp :_c "|r|)  [output (char 13)]
-if (equalp :_c "|t|)  [output (char 9)]
-if (equalp :_c "|b|)  [output (char 8)]
-if (equalp :_c "|f|)  [output (char 12)]
-if (equalp :_c "|u|)  [output (parse.unicode)]
+if (equalp :_c "|/|) [output "|/|]   ;; JSON allows /, no real escape
+if (equalp :_c "|u|) [output (parse.unicode)]
+localmake "_hit (find [equalp :_c last ?] :json.escapes)
+if not (emptyp :_hit) [output (char (first :_hit))]
 (throw "error (sentence [json: bad escape \\] :_c))
 end
 
@@ -412,9 +416,11 @@ end
 
 ask :json.parser [to parse.number.chars]
 ;; Direct recursion: prepend a number-char and recurse, stop at non-digit.
+;; char(ascii(c)) normalizes vbar-encoded chars (rawascii ≠ ascii) so that
+;; the resulting word passes numberp, which checks raw byte values.
 if (eof) [output "||]
 if not (memberp (peek) "|0123456789-+.eE|) [output "||]
-output (word (next) (parse.number.chars))
+output (word (char (ascii (next))) (parse.number.chars))
 end
 
 ask :json.parser [to parse.literal :_word :_value]
