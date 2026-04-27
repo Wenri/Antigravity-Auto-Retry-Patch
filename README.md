@@ -1,5 +1,7 @@
 # Antigravity Auto-Retry & Recovery Patch
 
+![Antigravity Patcher – Moe Modules in Action](assets/image_moe.png)
+
 A **pure UCBLogo** patcher for the **Antigravity IDE** (VS Code based) that
 automates common UI interactions to keep your AI agents running smoothly.
 
