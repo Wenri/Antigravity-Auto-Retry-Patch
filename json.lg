@@ -33,15 +33,6 @@ make "caseignoredp "false
 .setsegmentsize 100000000
 
 
-;;; havemake polyfill (manual documents it but v6.2.5 doesn't ship it).
-;;; Defining at top level so all object methods inherit it via :logo.
-
-to havemake :_n :_v
-  have :_n
-  make :_n :_v
-end
-
-
 ;;; classes  (prototypes via something / kindof)
 
 make "json.value something
@@ -111,11 +102,7 @@ output (thing (slotname :_k))
 end
 
 ask :json.object [to set :_k :_v]
-;; Defensive: exist should have populated :_$keys, but if a caller built
-;; this object via raw kindof rather than oneof, _$keys may be missing.
-if not (mynamep "_$keys) [
-  have "_$keys
-  make "_$keys []]
+;; oneof runs exist which initializes :_$keys, so we can rely on it.
 if (memberp :_k :_$keys) [
   make (slotname :_k) :_v
   output self]
@@ -160,8 +147,11 @@ to json.array.of :lst
 end
 
 to is.json.instance :v
-  ;; UCBLogo objects satisfy wordp but crash word-builders. Detect by
-  ;; trying to send a method via ask -- catch any error on non-objects.
+  ;; Fast rejects first: numbers and lists can't be objects. The
+  ;; remaining catch+ask is the only safe test for the wordp-vs-instance
+  ;; distinction (UCBLogo objects satisfy wordp but crash word-builders).
+  if (numberp :v) [output "false]
+  if (listp :v)   [output "false]
   ignore error
   catch "error [ignore (ask :v [type])]
   output emptyp error
@@ -218,11 +208,14 @@ end
 ;;; serializer (top-level dispatch on type)
 
 to json.serialize :v
-  if (numberp :v) [output (json.number.format :v)]
-  if (listp :v)   [output (json.array.serialize :v)]
-  if (is.json.instance :v) [output (ask :v [serialize])]
-  if (or (equalp :v "true) (equalp :v "false)) [output :v]
-  output (json.string.escape :v)
+  ;; case dispatches on the type tag computed by json.type. Object and null
+  ;; share a clause -- both are instances and respond to (ask :v [serialize]).
+  output (case (json.type :v) [
+    [[number]      (json.number.format :v)]
+    [[array]       (json.array.serialize :v)]
+    [[object null] (ask :v [serialize])]
+    [[bool]        :v]
+    [[string]      (json.string.escape :v)]])
 end
 
 to json.array.serialize :lst
@@ -242,22 +235,26 @@ to json.string.escape :s
 end
 
 to json.string.escape.body :s
-  ;; Per-char escape walk; pass-through for printable / non-special.
+  ;; map over a word concatenates per-char escape results. Each
+  ;; json.escape.char output may itself be multi-char (\n etc.); map's
+  ;; word-mode concatenates them via word, which is what we want.
+  if emptyp :s [output "||]
+  output (map "json.escape.char :s)
+end
+
+to json.escape.char :c
   ;; Escape outputs are built via (char 92) for the backslash because vbar
   ;; reads "|\n| as literal "n" -- vbar drops backslash from any non-pipe.
-  if emptyp :s [output "||]
-  localmake "c (first :s)
-  localmake "rest (json.string.escape.body (bf :s))
   localmake "bs (char 92)
-  if (equalp :c "|"|)  [output (word :bs "|"| :rest)]
-  if (equalp :c :bs)   [output (word :bs :bs :rest)]
-  if (equalp (ascii :c) 10) [output (word :bs "n :rest)]
-  if (equalp (ascii :c) 13) [output (word :bs "r :rest)]
-  if (equalp (ascii :c) 9)  [output (word :bs "t :rest)]
-  if (equalp (ascii :c) 8)  [output (word :bs "b :rest)]
-  if (equalp (ascii :c) 12) [output (word :bs "f :rest)]
-  if (ascii :c) < 32 [output (word :bs "|u00| (hexn 2 (ascii :c)) :rest)]
-  output (word :c :rest)
+  if (equalp :c "|"|)  [output (word :bs "|"|)]
+  if (equalp :c :bs)   [output (word :bs :bs)]
+  if (equalp (ascii :c) 10) [output (word :bs "n)]
+  if (equalp (ascii :c) 13) [output (word :bs "r)]
+  if (equalp (ascii :c) 9)  [output (word :bs "t)]
+  if (equalp (ascii :c) 8)  [output (word :bs "b)]
+  if (equalp (ascii :c) 12) [output (word :bs "f)]
+  if (ascii :c) < 32 [output (word :bs "|u00| (hexn 2 (ascii :c)))]
+  output :c
 end
 
 
@@ -293,23 +290,17 @@ end
 
 ask :json.parser [to ws.chars]
 ;; Vbar drops backslash-escapes (\t -> t), so build the whitespace set
-;; explicitly. Cached per parser instance via slot.
+;; explicitly via char codes.
 output (word "|  | (char 9) (char 10) (char 13))
 end
 
-ask :json.parser [to is.ws :_c]
-output (memberp :_c (ws.chars))
-end
-
 ask :json.parser [to skip.ws]
-;; Iterative via cascade -- recursive form blew the stack on whitespace-
-;; heavy inputs. cascade's templates are run-d outside object scope, so
-;; we have to ask :_self explicitly. Stop predicate: eof or non-ws peek.
-localmake "_self self
-ignore (cascade [or (ask :_self [eof])
-                    (not (ask :_self [is.ws (peek)]))]
-                [ask :_self [ignore (next)] ?]
-                "ignored)
+;; Direct method recursion. .setsegmentsize at module load gives us
+;; enough heap for the deepest realistic JSON whitespace runs.
+if (eof) [stop]
+if not (memberp (peek) (ws.chars)) [stop]
+ignore (next)
+skip.ws
 end
 
 ask :json.parser [to expect :_ch]
@@ -341,14 +332,19 @@ output :_obj
 end
 
 ask :json.parser [to parse.object.entries :_obj]
-;; Iterative via cascade. Accumulator is a one-element list whose presence
-;; means "still going". When the closing '}' is consumed the step returns
-;; [], and cascade's emptyp test stops the loop. Avoids slot flags that
-;; would leak across nested objects.
-localmake "_self self
-ignore (cascade [emptyp ?]
-                [parse.object.step :_self :_obj ?]
-                [going])
+;; Direct recursion: parse "k":v pair, recurse on ',', stop on '}'.
+(skip.ws)
+localmake "_k (parse.string)
+(skip.ws)
+(expect "|:|)
+localmake "_v (parse.value)
+ignore (ask :_obj [set :_k :_v])
+(skip.ws)
+localmake "_c (next)
+if (equalp :_c "|}|) [stop]
+if not (equalp :_c "|,|) [
+  (throw "error (sentence [json: expected , or "|}|" after entry]))]
+parse.object.entries :_obj
 end
 
 ask :json.parser [to parse.array]
@@ -359,13 +355,15 @@ output (parse.array.elements)
 end
 
 ask :json.parser [to parse.array.elements]
-;; Iterative via cascade; result list grows with `lput`. Accumulator's
-;; first element flags done ("true) when the closing ']' is consumed.
-;; bf strips the flag.
-localmake "_self self
-output (bf (cascade [equalp (first ?) "true]
-                    [parse.array.step :_self ?]
-                    [false]))
+;; Direct recursion: parse one value, recurse on ',', stop on ']'.
+;; Returns a list with most-recently-parsed value first.
+localmake "_v (parse.value)
+(skip.ws)
+localmake "_c (next)
+if (equalp :_c "|]|) [output (list :_v)]
+if not (equalp :_c "|,|) [
+  (throw "error (sentence [json: expected , or "|]|" after element]))]
+output (fput :_v (parse.array.elements))
 end
 
 ask :json.parser [to parse.string]
@@ -374,12 +372,12 @@ output (parse.string.body)
 end
 
 ask :json.parser [to parse.string.body]
-;; Iterative chars-to-buffer until closing ". Accumulator is a 2-list
-;; [done buf]; step appends a char or sets done = "true on closing quote.
-localmake "_self self
-output (last (cascade [equalp (first ?) "true]
-                      [parse.string.step :_self ?]
-                      [false ||]))
+;; Direct recursion: read a char, prepend to recursive remainder.
+if (eof) [(throw "error [json: unterminated string])]
+localmake "_c (next)
+if (equalp :_c "|"|) [output "||]
+if (equalp :_c (char 92)) [output (word (parse.escape) (parse.string.body))]
+output (word :_c (parse.string.body))
 end
 
 ask :json.parser [to parse.escape]
@@ -413,14 +411,10 @@ output (:_buf + 0)
 end
 
 ask :json.parser [to parse.number.chars]
-;; Accumulate digits while peek is a number-char. cascade's stop predicate
-;; reads :_self via ask -- templates run outside object scope.
-localmake "_self self
-output (cascade [or (ask :_self [eof])
-                    (not (memberp (ask :_self [peek])
-                                  "|0123456789-+.eE|))]
-                [word ? (ask :_self [next])]
-                "||)
+;; Direct recursion: prepend a number-char and recurse, stop at non-digit.
+if (eof) [output "||]
+if not (memberp (peek) "|0123456789-+.eE|) [output "||]
+output (word (next) (parse.number.chars))
 end
 
 ask :json.parser [to parse.literal :_word :_value]
@@ -434,66 +428,15 @@ output :_value
 end
 
 
-;;; cascade-step helpers (each takes the parser :_p plus state). The state
-;;; threads the loop's "done" flag inline because cascade templates run
-;;; outside object scope, so we can't write per-parser flags from here
-;;; without per-loop slots that would leak across nesting.
-
-to parse.object.step :_p :_obj :_unused
-  ;; Returns [going] to continue, [] to stop. The empty-list signal is
-  ;; what cascade's `emptyp ?` predicate watches for.
-  ask :_p [skip.ws]
-  localmake "_k (ask :_p [parse.string])
-  ask :_p [skip.ws]
-  ask :_p [expect "|:|]
-  localmake "_v (ask :_p [parse.value])
-  ignore (ask :_obj [set :_k :_v])
-  ask :_p [skip.ws]
-  localmake "_c (ask :_p [next])
-  if (equalp :_c "|}|) [output []]
-  if not (equalp :_c "|,|) [
-    (throw "error (sentence [json: expected , or "|}|" after entry]))]
-  output [going]
-end
-
-to parse.array.step :_p :_acc
-  ;; :_acc = [done v1 v2 ...]. When done is "true cascade stops; bf
-  ;; strips it. Step parses one value, appends to acc, then peeks for
-  ;; ']' or ','.
-  localmake "_v (ask :_p [parse.value])
-  localmake "_acc2 (lput :_v :_acc)
-  ask :_p [skip.ws]
-  localmake "_c (ask :_p [next])
-  if (equalp :_c "|]|) [output (fput "true (bf :_acc2))]
-  if not (equalp :_c "|,|) [
-    (throw "error (sentence [json: expected , or "|]|" after element]))]
-  output :_acc2
-end
-
-to parse.string.step :_p :_acc
-  ;; :_acc = [done buf]. Read one char; closing quote sets done.
-  if (ask :_p [eof]) [
-    (throw "error [json: unterminated string])]
-  localmake "_buf (last :_acc)
-  localmake "_c (ask :_p [next])
-  if (equalp :_c "|"|) [output (list "true :_buf)]
-  if (equalp :_c (char 92)) [output (list "false (word :_buf (ask :_p [parse.escape])))]
-  output (list "false (word :_buf :_c))
-end
-
-
 ;;; helpers
 
 to parseint16 :w
-  ;; 4-hex-digit -> integer via y-fold.
-  output (invoke y
-    [[self acc rest]
-      ifelse emptyp :rest
-        [:acc]
-        [(invoke :self
-                 (16 * :acc + (hexdigit (first :rest)))
-                 (bf :rest))]]
-    0 :w)
+  ;; n hex digits -> integer. Map over position indices (1..n), weight
+  ;; each digit by 16^(n-i), then sum. Going through iseq because
+  ;; (map T :word) produces a word -- we need numeric output to add.
+  localmake "_n (count :w)
+  output (apply "sum (map [(hexdigit (item ? :w)) * (lshift 1 (:_n - ?) * 4)]
+                          (iseq 1 :_n)))
 end
 
 to hexdigit :c
