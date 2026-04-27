@@ -1,1 +1,2 @@
+*.lg linguist-language=NetLogo
 *.png filter=lfs diff=lfs merge=lfs -text
