@@ -277,11 +277,12 @@ Notes on the injected loop:
 
 ## UCBLogo port (`applyAutoRetryContinueAllowPatch.lg`)
 
-A pure-Logo equivalent for hosts with `ucblogo` and `jq` (Mac/Linux only).
-Functionally equivalent to the `.js` patcher; the embedded IIFE drops the
-JS source's cosmetic blank lines so the produced bytes don't match
-exactly, but each patcher recomputes its own `product.json` checksum so
-integrity holds either way. Notable differences in how it gets there:
+A pure-Logo equivalent for hosts with `ucblogo` (Mac/Linux only) -- no
+external dependencies beyond the Logo runtime itself. Functionally
+equivalent to the `.js` patcher; the embedded IIFE drops the JS source's
+cosmetic blank lines so the produced bytes don't match exactly, but each
+patcher recomputes its own `product.json` checksum so integrity holds
+either way. Notable differences in how it gets there:
 
 - **No platform switch.** `(find "filep (wb.candidates))` returns the first
   existing path from a candidate list. Mac path is checked first; on Linux
@@ -297,11 +298,13 @@ integrity holds either way. Notable differences in how it gets there:
   then inserts `'unsafe-inline'` just before that directive's terminating
   `;` if the directive segment doesn't already include it. (A global
   `'unsafe-inline'` substring check would falsely match `style-src`'s.)
-- **`jq` is required** for the `product.json` checksum update. Pure-Logo
-  JSON edits would be slow on a 44 KB file with marginal benefit.
-- **`/bin/sh` quoting:** UCBLogo's `shell` pipes through `/bin/sh -c`,
-  which strips `"` from arguments. The jq expression is wrapped in
-  literal single quotes so its embedded `"..."` reaches jq intact.
+- **Pure-Logo JSON edits via `json.lg`.** A small library built on
+  UCBLogo's prototypal object system (`something` / `kindof` / `oneof` /
+  `ask`). JSON objects are instances of `:json.object` with one slot per
+  key; arrays are native Logo lists (`.setfirst` / `.setbf` make nested
+  mutation work without a wrapper class); `null` is a singleton instance.
+  The parser is itself a stateful object (`:json.parser`). See `json.lg`
+  for the full design notes.
 - **Mode is `"all"` only** today. The `:mode` parameter is reserved for
   future per-feature gating.
 - **Reset flow** is not implemented. Use the `.js` patcher's option 9 to

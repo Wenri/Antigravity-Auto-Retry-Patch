@@ -5,8 +5,8 @@
 ;;;;
 ;;;; Pure-Logo equivalent of applyAutoRetryContinueAllowPatch.js.
 ;;;; Probes Mac/Linux install paths via stdlib (find "filep ...);
-;;;; pure-Logo HTML splice (no sed); jq for product.json checksum;
-;;;; one sudo prompt per run via batched cp.
+;;;; pure-Logo HTML splice (no sed); pure-Logo JSON edits via json.lg
+;;;; (no jq); one sudo prompt per run via batched cp.
 ;;;;
 ;;;; UCBLogo quirks worth pinning:
 ;;;;   - vbar words "|...| take chars literally; \| escapes pipe,
@@ -16,6 +16,7 @@
 
 if not definedp "sha256.hash [load "sha256.lg]
 if not definedp "b64.encode [load "base64.lg]
+if not definedp "json.parse [load "json.lg]
 
 
 ;;; install location
@@ -234,17 +235,20 @@ to clean.source :wb :bak
 end
 
 
-;;; checksum (jq edits product.json into /tmp/prod.json)
+;;; checksum (parse product.json with json.lg, mutate, serialize)
 
 to queue.checksum :prod :patched
-  ;; Logo's shell pipes through /bin/sh -c, so wrap the jq expression in
-  ;; literal single quotes so sh forwards the embedded "..." to jq intact.
+  ;; Pure Logo: parse, set checksum, serialize. Replaces a previous jq
+  ;; shellout. The .lg port now needs no external dependency beyond ucblogo.
   if not (filep :prod) [stop]
   localmake "hash (strip.pad (b64.encode (sha256.hash (msg.to.bytes :patched))))
-  localmake "expr "|'.checksums["vs/code/electron-browser/workbench/workbench.html"] = $h'|
-  localmake "jq.out (shell (se [jq --arg h] :hash :expr :prod) "w)
+  localmake "doc (json.parse (file.text :prod))
+  localmake "cs (json.get :doc "checksums)
+  ignore (json.set :cs
+                   "|vs/code/electron-browser/workbench/workbench.html|
+                   :hash)
 
-  (write.lines "|/tmp/prod.json| :jq.out)
+  (write.text "|/tmp/prod.json| (json.serialize :doc))
   make "writes (lput (list :prod "|/tmp/prod.json|) :writes)
 end
 

@@ -1,0 +1,525 @@
+;;;; json.lg -- Pure UCBLogo JSON via the prototypal object system
+;;;;
+;;;; Usage:
+;;;;   load "json.lg
+;;;;   make "doc (json.parse "|{"x":1,"y":[2,3]}|)
+;;;;   print (json.serialize :doc)
+;;;;   (json.set :doc "x 42)
+;;;;
+;;;; Type representation:
+;;;;   object   -- (oneof :json.object), one slot per key via have / make
+;;;;   array    -- native Logo list, mutated via .setfirst / .setbf
+;;;;   null     -- :json.null singleton
+;;;;   string   -- Logo word
+;;;;   number   -- Logo number
+;;;;   bool     -- Logo word "true / "false
+;;;;
+;;;; Known limitation: Logo's `make` case-folds variable names at storage,
+;;;; so JSON object keys differing only in case (userId vs userid) will
+;;;; collide -- last write wins. caseignoredp is set false here so that
+;;;; equalp / memberp see them as distinct, but the underlying slot is
+;;;; shared. Acceptable for product.json which uses lowercase + slash keys.
+;;;;
+;;;; Depends on: lib.lg (file.text, taken, dropn, hexn, y, splice.*)
+
+if not definedp "splice.after [load "lib.lg]
+
+make "caseignoredp "false
+
+;; Bigger heap: cascade-driven parse builds many transient cons cells per
+;; element (per-iteration acc lists, ws skips, char-by-char string buf).
+;; The default 16k segment causes Fatal Internal Error on inputs of more
+;; than a few KB. 100M nodes covers comfortable parsing of large JSON.
+.setsegmentsize 100000000
+
+
+;;; havemake polyfill (manual documents it but v6.2.5 doesn't ship it).
+;;; Defining at top level so all object methods inherit it via :logo.
+
+to havemake :_n :_v
+  have :_n
+  make :_n :_v
+end
+
+
+;;; classes  (prototypes via something / kindof)
+
+make "json.value something
+make "json.null  (kindof :json.value)
+make "json.object (kindof :json.value)
+
+
+;;; json.value -- abstract
+
+ask :json.value [to type]
+output "value
+end
+
+ask :json.value [to serialize]
+(throw "error [json.value: abstract method])
+end
+
+
+;;; json.null
+
+ask :json.null [to type]
+output "null
+end
+
+ask :json.null [to serialize]
+output "|null|
+end
+
+
+;;; json.object  (one variable slot per key + insertion-ordered :_$keys)
+
+ask :json.object [to exist]
+;; Per-instance slot. Putting `have` here (not at the prototype level)
+;; ensures each oneof gets its own :_$keys; otherwise instances share the
+;; prototype's slot and key lists collide across objects.
+have "_$keys
+make "_$keys []
+end
+
+;; Slot names are mangled with a "_$" prefix so JSON keys can't collide
+;; with stdlib macro parameters (e.g. localmake's :name) that would
+;; otherwise trigger "defined both dynamically and in current object"
+;; under caseignoredp false.
+ask :json.object [to slotname :_k]
+output (word "|_$| :_k)
+end
+
+ask :json.object [to type]
+output "object
+end
+
+ask :json.object [to keys]
+output :_$keys
+end
+
+ask :json.object [to length]
+output (count :_$keys)
+end
+
+ask :json.object [to has :_k]
+output (memberp :_k :_$keys)
+end
+
+ask :json.object [to get :_k]
+if not (memberp :_k :_$keys) [output :json.null]
+output (thing (slotname :_k))
+end
+
+ask :json.object [to set :_k :_v]
+;; Defensive: exist should have populated :_$keys, but if a caller built
+;; this object via raw kindof rather than oneof, _$keys may be missing.
+if not (mynamep "_$keys) [
+  have "_$keys
+  make "_$keys []]
+if (memberp :_k :_$keys) [
+  make (slotname :_k) :_v
+  output self]
+have (slotname :_k)
+make (slotname :_k) :_v
+make "_$keys (lput :_k :_$keys)
+output self
+end
+
+ask :json.object [to remove :_k]
+;; Drop from :_$keys; the slot itself remains (logo has no per-object unbind),
+;; but get/has/serialize all consult :_$keys so it's effectively gone.
+make "_$keys (filter [not equalp ? :_k] :_$keys)
+output self
+end
+
+ask :json.object [to serialize]
+if emptyp :_$keys [output "|{}|]
+localmake "_obj self
+output (word "|{|
+              (reduce [(word ?1 "|,| ?2)]
+                      (map [(word (json.string.escape ?)
+                                  "|:|
+                                  (json.serialize (ask :_obj [get ?])))]
+                           :_$keys))
+              "|}|)
+end
+
+
+;;; flat sugar
+
+to json.object
+  output (oneof :json.object)
+end
+
+to json.array
+  output []
+end
+
+to json.array.of :lst
+  output :lst
+end
+
+to is.json.instance :v
+  ;; UCBLogo objects satisfy wordp but crash word-builders. Detect by
+  ;; trying to send a method via ask -- catch any error on non-objects.
+  ignore error
+  catch "error [ignore (ask :v [type])]
+  output emptyp error
+end
+
+to json.type :v
+  if (numberp :v) [output "number]
+  if (listp :v)   [output "array]
+  if (is.json.instance :v) [output (ask :v [type])]
+  if (or (equalp :v "true) (equalp :v "false)) [output "bool]
+  output "string
+end
+
+to json.get :v :k
+  if (listp :v) [output (item :k :v)]
+  if (is.json.instance :v) [output (ask :v [get :k])]
+  (throw "error [json.get: not a container])
+end
+
+to json.set :v :k :new
+  if (listp :v) [
+    .setfirst (cascade :k - 1 [bf ?] :v) :new
+    output :v]
+  if (is.json.instance :v) [output (ask :v [set :k :new])]
+  (throw "error [json.set: not a container])
+end
+
+to json.has :v :k
+  if (listp :v) [output (and :k > 0 :k <= (count :v))]
+  if (is.json.instance :v) [output (ask :v [has :k])]
+  output "false
+end
+
+to json.length :v
+  if (listp :v) [output (count :v)]
+  if (is.json.instance :v) [output (ask :v [length])]
+  (throw "error [json.length: not a container])
+end
+
+to json.keys :v
+  if (listp :v) [output (iseq 1 (count :v))]
+  if (is.json.instance :v) [output (ask :v [keys])]
+  (throw "error [json.keys: not a container])
+end
+
+to json.push :arr :v
+  ;; Empty case: caller must reassign (no cons cell to mutate).
+  if emptyp :arr [output (list :v)]
+  .setbf (cascade [emptyp bf ?] [bf ?] :arr) (list :v)
+  output :arr
+end
+
+
+;;; serializer (top-level dispatch on type)
+
+to json.serialize :v
+  if (numberp :v) [output (json.number.format :v)]
+  if (listp :v)   [output (json.array.serialize :v)]
+  if (is.json.instance :v) [output (ask :v [serialize])]
+  if (or (equalp :v "true) (equalp :v "false)) [output :v]
+  output (json.string.escape :v)
+end
+
+to json.array.serialize :lst
+  if emptyp :lst [output "|[]|]
+  output (word "|[|
+                (reduce [(word ?1 "|,| ?2)] (map "json.serialize :lst))
+                "|]|)
+end
+
+to json.number.format :n
+  if (equalp (int :n) :n) [output (word (int :n))]
+  output (word :n)
+end
+
+to json.string.escape :s
+  output (word "|"| (json.string.escape.body :s) "|"|)
+end
+
+to json.string.escape.body :s
+  ;; Per-char escape walk; pass-through for printable / non-special.
+  ;; Escape outputs are built via (char 92) for the backslash because vbar
+  ;; reads "|\n| as literal "n" -- vbar drops backslash from any non-pipe.
+  if emptyp :s [output "||]
+  localmake "c (first :s)
+  localmake "rest (json.string.escape.body (bf :s))
+  localmake "bs (char 92)
+  if (equalp :c "|"|)  [output (word :bs "|"| :rest)]
+  if (equalp :c :bs)   [output (word :bs :bs :rest)]
+  if (equalp (ascii :c) 10) [output (word :bs "n :rest)]
+  if (equalp (ascii :c) 13) [output (word :bs "r :rest)]
+  if (equalp (ascii :c) 9)  [output (word :bs "t :rest)]
+  if (equalp (ascii :c) 8)  [output (word :bs "b :rest)]
+  if (equalp (ascii :c) 12) [output (word :bs "f :rest)]
+  if (ascii :c) < 32 [output (word :bs "|u00| (hexn 2 (ascii :c)) :rest)]
+  output (word :c :rest)
+end
+
+
+;;; parser  (json.parser is itself an object)
+;;; Slot names + method params are prefixed (_src, _pos) to avoid colliding
+;;; with stdlib macro parameters under caseignoredp false.
+
+make "json.parser something
+
+ask :json.parser [to init]
+;; Pulls source from the global :json._init.src set by json.parse before
+;; entering this ask block. See json.parse for rationale.
+have "_src
+have "_pos
+make "_src :json._init.src
+make "_pos 1
+end
+
+ask :json.parser [to eof]
+output (:_pos > (count :_src))
+end
+
+ask :json.parser [to peek]
+if (eof) [output "||]
+output (item :_pos :_src)
+end
+
+ask :json.parser [to next]
+localmake "_c (peek)
+make "_pos (:_pos + 1)
+output :_c
+end
+
+ask :json.parser [to ws.chars]
+;; Vbar drops backslash-escapes (\t -> t), so build the whitespace set
+;; explicitly. Cached per parser instance via slot.
+output (word "|  | (char 9) (char 10) (char 13))
+end
+
+ask :json.parser [to is.ws :_c]
+output (memberp :_c (ws.chars))
+end
+
+ask :json.parser [to skip.ws]
+;; Iterative via cascade -- recursive form blew the stack on whitespace-
+;; heavy inputs. cascade's templates are run-d outside object scope, so
+;; we have to ask :_self explicitly. Stop predicate: eof or non-ws peek.
+localmake "_self self
+ignore (cascade [or (ask :_self [eof])
+                    (not (ask :_self [is.ws (peek)]))]
+                [ask :_self [ignore (next)] ?]
+                "ignored)
+end
+
+ask :json.parser [to expect :_ch]
+localmake "_c (next)
+if not (equalp :_c :_ch) [
+  (throw "error (sentence [json: expected] :_ch [at pos] :_pos [got] :_c))]
+end
+
+ask :json.parser [to parse.value]
+(skip.ws)
+if (eof) [(throw "error [json: unexpected end of input])]
+localmake "_c (peek)
+if (equalp :_c "|{|) [output (parse.object)]
+if (equalp :_c "|[|) [output (parse.array)]
+if (equalp :_c "|"|) [output (parse.string)]
+if (equalp :_c "|t|) [output (parse.literal "|true|  "true)]
+if (equalp :_c "|f|) [output (parse.literal "|false| "false)]
+if (equalp :_c "|n|) [output (parse.literal "|null|  :json.null)]
+output (parse.number)
+end
+
+ask :json.parser [to parse.object]
+(expect "|{|)
+localmake "_obj (json.object)
+(skip.ws)
+if (equalp (peek) "|}|) [ignore (next) output :_obj]
+parse.object.entries :_obj
+output :_obj
+end
+
+ask :json.parser [to parse.object.entries :_obj]
+;; Iterative via cascade. Accumulator is a one-element list whose presence
+;; means "still going". When the closing '}' is consumed the step returns
+;; [], and cascade's emptyp test stops the loop. Avoids slot flags that
+;; would leak across nested objects.
+localmake "_self self
+ignore (cascade [emptyp ?]
+                [parse.object.step :_self :_obj ?]
+                [going])
+end
+
+ask :json.parser [to parse.array]
+(expect "|[|)
+(skip.ws)
+if (equalp (peek) "|]|) [ignore (next) output []]
+output (parse.array.elements)
+end
+
+ask :json.parser [to parse.array.elements]
+;; Iterative via cascade; result list grows with `lput`. Accumulator's
+;; first element flags done ("true) when the closing ']' is consumed.
+;; bf strips the flag.
+localmake "_self self
+output (bf (cascade [equalp (first ?) "true]
+                    [parse.array.step :_self ?]
+                    [false]))
+end
+
+ask :json.parser [to parse.string]
+(expect "|"|)
+output (parse.string.body)
+end
+
+ask :json.parser [to parse.string.body]
+;; Iterative chars-to-buffer until closing ". Accumulator is a 2-list
+;; [done buf]; step appends a char or sets done = "true on closing quote.
+localmake "_self self
+output (last (cascade [equalp (first ?) "true]
+                      [parse.string.step :_self ?]
+                      [false ||]))
+end
+
+ask :json.parser [to parse.escape]
+localmake "_c (next)
+if (equalp :_c "|"|)  [output "|"|]
+if (equalp :_c "|\\|) [output "|\\|]
+if (equalp :_c "|/|)  [output "|/|]
+if (equalp :_c "|n|)  [output (char 10)]
+if (equalp :_c "|r|)  [output (char 13)]
+if (equalp :_c "|t|)  [output (char 9)]
+if (equalp :_c "|b|)  [output (char 8)]
+if (equalp :_c "|f|)  [output (char 12)]
+if (equalp :_c "|u|)  [output (parse.unicode)]
+(throw "error (sentence [json: bad escape \\] :_c))
+end
+
+ask :json.parser [to parse.unicode]
+;; Read 4 hex digits, output BMP char. Surrogate pairs not handled.
+localmake "_h1 (next)
+localmake "_h2 (next)
+localmake "_h3 (next)
+localmake "_h4 (next)
+output (char (parseint16 (word :_h1 :_h2 :_h3 :_h4)))
+end
+
+ask :json.parser [to parse.number]
+localmake "_buf (parse.number.chars)
+if not (numberp :_buf) [
+  (throw "error (sentence [json: bad number] :_buf))]
+output (:_buf + 0)
+end
+
+ask :json.parser [to parse.number.chars]
+;; Accumulate digits while peek is a number-char. cascade's stop predicate
+;; reads :_self via ask -- templates run outside object scope.
+localmake "_self self
+output (cascade [or (ask :_self [eof])
+                    (not (memberp (ask :_self [peek])
+                                  "|0123456789-+.eE|))]
+                [word ? (ask :_self [next])]
+                "||)
+end
+
+ask :json.parser [to parse.literal :_word :_value]
+;; _word is the literal text; _value is the parsed Logo value.
+localmake "_n (count :_word)
+localmake "_got (taken :_n (dropn (:_pos - 1) :_src))
+if not (equalp :_got :_word) [
+  (throw "error (sentence [json: expected] :_word [at pos] :_pos))]
+make "_pos (:_pos + :_n)
+output :_value
+end
+
+
+;;; cascade-step helpers (each takes the parser :_p plus state). The state
+;;; threads the loop's "done" flag inline because cascade templates run
+;;; outside object scope, so we can't write per-parser flags from here
+;;; without per-loop slots that would leak across nesting.
+
+to parse.object.step :_p :_obj :_unused
+  ;; Returns [going] to continue, [] to stop. The empty-list signal is
+  ;; what cascade's `emptyp ?` predicate watches for.
+  ask :_p [skip.ws]
+  localmake "_k (ask :_p [parse.string])
+  ask :_p [skip.ws]
+  ask :_p [expect "|:|]
+  localmake "_v (ask :_p [parse.value])
+  ignore (ask :_obj [set :_k :_v])
+  ask :_p [skip.ws]
+  localmake "_c (ask :_p [next])
+  if (equalp :_c "|}|) [output []]
+  if not (equalp :_c "|,|) [
+    (throw "error (sentence [json: expected , or "|}|" after entry]))]
+  output [going]
+end
+
+to parse.array.step :_p :_acc
+  ;; :_acc = [done v1 v2 ...]. When done is "true cascade stops; bf
+  ;; strips it. Step parses one value, appends to acc, then peeks for
+  ;; ']' or ','.
+  localmake "_v (ask :_p [parse.value])
+  localmake "_acc2 (lput :_v :_acc)
+  ask :_p [skip.ws]
+  localmake "_c (ask :_p [next])
+  if (equalp :_c "|]|) [output (fput "true (bf :_acc2))]
+  if not (equalp :_c "|,|) [
+    (throw "error (sentence [json: expected , or "|]|" after element]))]
+  output :_acc2
+end
+
+to parse.string.step :_p :_acc
+  ;; :_acc = [done buf]. Read one char; closing quote sets done.
+  if (ask :_p [eof]) [
+    (throw "error [json: unterminated string])]
+  localmake "_buf (last :_acc)
+  localmake "_c (ask :_p [next])
+  if (equalp :_c "|"|) [output (list "true :_buf)]
+  if (equalp :_c (char 92)) [output (list "false (word :_buf (ask :_p [parse.escape])))]
+  output (list "false (word :_buf :_c))
+end
+
+
+;;; helpers
+
+to parseint16 :w
+  ;; 4-hex-digit -> integer via y-fold.
+  output (invoke y
+    [[self acc rest]
+      ifelse emptyp :rest
+        [:acc]
+        [(invoke :self
+                 (16 * :acc + (hexdigit (first :rest)))
+                 (bf :rest))]]
+    0 :w)
+end
+
+to hexdigit :c
+  localmake "n (ascii :c)
+  if and :n >= 48 :n <= 57  [output (:n - 48)]
+  if and :n >= 97 :n <= 102 [output (:n - 87)]
+  if and :n >= 65 :n <= 70  [output (:n - 55)]
+  (throw "error (sentence [json: bad hex] :c))
+end
+
+
+;;; top-level entry
+
+to json.parse :json.in
+  ;; Logo's dynamic scoping makes outer parameter names visible inside any
+  ;; `ask` block, where they collide with same-named object slots. Use a
+  ;; namespace-like prefix here so the parser's :_src slot has no twin in
+  ;; the dynamic chain. Marshal through a global because v6.2.5's oneof
+  ;; initlist plumbing doesn't populate slots and ask's body shadows the
+  ;; caller's locals (so `ask :p [init :json.in]` wouldn't see :json.in).
+  make "json._init.src :json.in
+  localmake "p (oneof :json.parser)
+  ask :p [init]
+  localmake "v (ask :p [parse.value])
+  ask :p [skip.ws]
+  if not (ask :p [eof]) [
+    (throw "error (sentence [json: trailing data at pos] (ask :p [:_pos])))]
+  output :v
+end
