@@ -121,7 +121,13 @@ lib/json.lg       -- pure-Logo JSON via UCBLogo's prototypal OOP
                      (something / kindof / oneof / ask). objects are
                      instances with one slot per key (mangled "_$key");
                      arrays are native lists (mutated via .setfirst/.setbf);
-                     null is a singleton instance.
+                     null is a singleton instance. Parser is preprocess +
+                     native `parse` + walk: JSON is rewritten into a
+                     Logo-tokenizable word (sentinel-encoding in-string
+                     structural specials; JSON `\X` left raw for the
+                     walker to decode), handed to C-side `parse`, then
+                     the token list is walked into the value tree. ~3.8x
+                     faster than per-char Logo scanning on product.json.
                      `.setsegmentsize 100000000` at module load -- the
                      default 16k segment is too small for the cons churn.
 
@@ -148,6 +154,8 @@ The Logo we use is v6.2.5 on macOS. Several non-obvious traits shape the code:
 **5. Slot-name mangling.** `lib/json.lg` prefixes every JSON key with `_$` before using it as a slot name. Without the prefix, a key named `name` collides with `localmake`'s `:name` parameter under `caseignoredp false` and triggers "defined both dynamically and in current object". Method params use `:_k`, `:_v`, `:_src`, etc. for the same reason.
 
 **6. Vbar escapes only honor `\|` and `\\`.** Other `\X` sequences drop the backslash (`\n` → `n`, `\t` → `t`). The whitespace-set in `lib/json.lg`'s `ws.chars` is built via `(char 9)`/`(char 10)`/`(char 13)`, not `"|\t\n\r|`.
+
+**7. `parse` keeps the byte but strips sentinel metadata.** Native `parse` is the fast path for tokenizing in-memory words (C-side, ~3.8x faster than Logo char-by-char on product.json), with two subtleties: (a) it splits on raw bytes 9/10/32/91/93/etc. — to embed those inside an output token, encode them as their Logo sentinel forms (3/17/18/...). (b) The output word preserves the sentinel byte but loses the sentinel-vs-logical tag — `ascii` returns the raw low byte (3), not the logical char (32) — so consumers need a sentinel→raw post-pass. JSON's `\t \n \r` after decode would be bytes 9/10/13, which have no Logo sentinel form, so `lib/json.lg` leaves JSON `\X` escapes raw through the preprocessor and decodes them in the walker.
 
 ## Style guardrails
 

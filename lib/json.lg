@@ -276,184 +276,267 @@ to json.escape.char :c
 end
 
 
-;;; parser  (json.parser is itself an object)
-;;; Slot names + method params are prefixed (_src, _pos) to avoid colliding
-;;; with stdlib macro parameters under caseignoredp false.
+;;; parser  (preprocess + native parse + walk token list)
+;;;
+;;; Architecture: rewrite JSON source into a Logo-tokenizable word
+;;; (substituting structural chars, vbar-wrapping JSON strings with an
+;;; "S" prefix tag), then call native `parse` to tokenize in C, then walk
+;;; the resulting token list to build the JSON value tree.
+;;;
+;;; The S-prefix tag is necessary because `parse "|"|true|" |` and
+;;; `parse "|true|` would otherwise produce indistinguishable tokens
+;;; (both bare word `true`). With the tag, JSON string `"true"` becomes
+;;; `Strue` while JSON literal `true` stays `true`.
+;;;
+;;; The Mobj sentinel marks parsed lists that originated from a JSON
+;;; object so the walker can distinguish object-as-list from array.
 
-make "json.parser something
 
-ask :json.parser [to init]
-;; Pulls source from the global :json._init.src set by json.parse before
-;; entering this ask block. See json.parse for rationale.
-have "_src
-have "_pos
-make "_src :json._init.src
-make "_pos 1
+;;; preprocessor
+;;;
+;;; Single-pass walk over :src via `repeat` (C-side iteration). Tracks
+;;; inside-string state via :pp.mode global. Output is built as a list
+;;; (fput, O(1)) and joined once at the end via `apply word reverse`.
+;;;
+;;; Inside a JSON string, the preprocessor emits each source byte but
+;;; sentinel-encodes any byte that would break `parse` (whitespace, `[`,
+;;; `]`, `{`, `}`, `|`, `"`). It does NOT decode JSON `\X` escapes -- the
+;;; raw `\X` is preserved (raw 0x5C + the escape letter), parse keeps it,
+;;; and `decode.string` in the walker handles the actual decode. This
+;;; avoids the trap that JSON `\t \n \r` decode to bytes 9/10/13 which
+;;; have no Logo sentinel form and would split parse.
+;;;
+;;; Outside a string, structural chars (`{`, `}`, `[`, `]`, `,`, `:`)
+;;; become space-separated `[`/`]` brackets so parse sees a Logo list.
+;;; Object opens are tagged with `Mobj` so the walker can distinguish
+;;; objects from arrays.
+
+;; Sentinel forms of the syntax-special chars. Logo's reader stores them
+;; as low-byte sentinels (3-31) when read from vbar-protected source --
+;; `(item 1 "|X|)` extracts the sentinel byte. parse keeps these as part
+;; of the surrounding word (unlike raw 0x5B/0x5D/0x20 which split it).
+make "sent.space  (item 1 "| |)
+make "sent.lbrack (item 1 "|[|)
+make "sent.rbrack (item 1 "|]|)
+make "sent.lcurly (item 1 "|{|)
+make "sent.rcurly (item 1 "|}|)
+make "sent.vbar   (item 2 "|x\|y|)
+make "sent.dquote (item 1 "|"|)
+
+;; raw-byte -> sentinel-byte translation for inside-string content.
+;; Excludes `\` (92) intentionally: backslashes stay raw so the walker can
+;; scan for them as JSON escape introducers. parse passes raw 92 through.
+make "string.sent.table (list
+  (list (char 32)  :sent.space)
+  (list (char 34)  :sent.dquote)
+  (list (char 91)  :sent.lbrack)
+  (list (char 93)  :sent.rbrack)
+  (list (char 123) :sent.lcurly)
+  (list (char 124) :sent.vbar)
+  (list (char 125) :sent.rcurly))
+
+;; Inverse mapping for the walker. parse() preserves the sentinel BYTE
+;; but strips Logo's sentinel-to-logical metadata, so ascii returns the
+;; raw byte (3) instead of the logical byte (32). The walker translates
+;; back via raw-byte lookup. Storing as integer pairs avoids equalp on
+;; chars that may have different storage representations.
+make "string.sent.inv (list
+  (list  3 32)    ;; space
+  (list 25 34)    ;; "
+  (list 17 91)    ;; [
+  (list 18 93)    ;; ]
+  (list 30 123)   ;; {
+  (list 29 124)   ;; |
+  (list 31 125))  ;; }
+
+;; Outside-string emit chunks. Use RAW bytes (32, 91, 93) -- parse needs
+;; the raw forms to split into Logo list structure. (char N) at load-time
+;; keeps these out of the source-file's bracket/vbar count.
+make "pp.lbrack  (word (char 32) (char 91) (char 32))
+make "pp.rbrack  (word (char 32) (char 93) (char 32))
+make "pp.objopen (word (char 32) (char 91) (char 32) "Mobj (char 32))
+make "pp.space   (char 32)
+make "pp.vbar    (char 124)
+make "pp.bslash  (char 92)
+
+
+to json.preprocess :src
+  make "pp.src  :src
+  make "pp.acc  []
+  make "pp.mode "outside
+  make "pp.skip 0
+  ;; `repeat` iterates in C; `repcount` is the 1-based index. Multi-char
+  ;; constructs (JSON `\uXXXX`, `\X`) emit ahead and bump :pp.skip to
+  ;; consume the next iterations. (Logo macros like `while` build a frame
+  ;; per iteration and don't scale.)
+  repeat (count :src) [pp.step repcount]
+  if (equalp :pp.mode "string) [(throw "error [json: unterminated string])]
+  output (apply "word (reverse :pp.acc))
 end
 
-ask :json.parser [to eof]
-output (:_pos > (count :_src))
+to pp.step :_idx
+  if (:pp.skip > 0) [make "pp.skip (:pp.skip - 1) stop]
+  localmake "_c (item :_idx :pp.src)
+  ifelse (equalp :pp.mode "string) [pp.step.string :_idx :_c] [pp.step.outside :_c]
 end
 
-ask :json.parser [to peek]
-if (eof) [output "||]
-output (item :_pos :_src)
+to pp.step.outside :_c
+  if (equalp :_c (char 123)) [pp.emit :pp.objopen "outside stop]
+  if (equalp :_c (char 125)) [pp.emit :pp.rbrack  "outside stop]
+  if (equalp :_c (char 91))  [pp.emit :pp.lbrack  "outside stop]
+  if (equalp :_c (char 93))  [pp.emit :pp.rbrack  "outside stop]
+  if (equalp :_c "|,|)       [pp.emit :pp.space   "outside stop]
+  if (equalp :_c "|:|)       [pp.emit :pp.space   "outside stop]
+  if (equalp :_c "|"|)       [pp.emit (word :pp.space "S) "string stop]
+  pp.emit :_c "outside
 end
 
-ask :json.parser [to next]
-localmake "_c (peek)
-make "_pos (:_pos + 1)
-output :_c
+to pp.step.string :_idx :_c
+  ;; Inside string: end on raw `"`; preserve `\X` as 2 raw chars (walker
+  ;; decodes); sentinel-encode everything else for parse-safety.
+  if (equalp :_c "|"|)       [pp.emit :pp.space "outside stop]
+  if (equalp :_c :pp.bslash) [pp.emit.escape :_idx stop]
+  pp.emit (string.encode.char :_c) "string
 end
 
-ask :json.parser [to ws.chars]
-;; Vbar drops backslash-escapes (\t -> t), so build the whitespace set
-;; explicitly via char codes.
-output (word "|  | (char 9) (char 10) (char 13))
+to pp.emit.escape :_idx
+  ;; JSON `\X` -> emit `\X` literally (raw 0x5C + the next char) so the
+  ;; walker's decode.string can recover the original byte. `\uXXXX` -> emit
+  ;; all 6 chars verbatim (hex digits are alphanumeric and parse-safe).
+  ;; pp.skip consumes the chars we already emitted.
+  localmake "_end (count :pp.src)
+  if (:_idx = :_end) [(throw "error [json: bad escape at end])]
+  localmake "_n (item (:_idx + 1) :pp.src)
+  if (equalp :_n "|u|) [
+    if ((:_idx + 5) > :_end) [(throw "error [json: short \\u])]
+    localmake "_hex (taken 4 (dropn (:_idx + 1) :pp.src))
+    pp.emit (word :pp.bslash "u :_hex) "string
+    make "pp.skip 5
+    stop]
+  pp.emit (word :pp.bslash :_n) "string
+  make "pp.skip 1
 end
 
-ask :json.parser [to skip.ws]
-;; Direct method recursion. .setsegmentsize at module load gives us
-;; enough heap for the deepest realistic JSON whitespace runs.
-if (eof) [stop]
-if not (memberp (peek) (ws.chars)) [stop]
-ignore (next)
-skip.ws
+to string.encode.char :_c
+  ;; Raw byte -> sentinel byte for the syntax-specials that would split or
+  ;; break parse. Lookup is a short list; pass-through is the common path.
+  localmake "_hit (find [equalp first ? :_c] :string.sent.table)
+  if not (emptyp :_hit) [output (last :_hit)]
+  output :_c
 end
 
-ask :json.parser [to expect :_ch]
-localmake "_c (next)
-if not (equalp :_c :_ch) [
-  (throw "error (sentence [json: expected] :_ch [at pos] :_pos [got] :_c))]
-end
-
-ask :json.parser [to parse.value]
-(skip.ws)
-if (eof) [(throw "error [json: unexpected end of input])]
-output (case (peek) [
-  [[|{|]      (parse.object)]
-  [[|[|]      (parse.array)]
-  [[|"|]      (parse.string)]
-  [[t]        (parse.literal "|true|  "true)]
-  [[f]        (parse.literal "|false| "false)]
-  [[n]        (parse.literal "|null|  :json.null)]
-  [else       (parse.number)]])
-end
-
-ask :json.parser [to parse.object]
-(expect "|{|)
-localmake "_obj (json.object)
-(skip.ws)
-if (equalp (peek) "|}|) [ignore (next) output :_obj]
-parse.object.entries :_obj
-output :_obj
-end
-
-ask :json.parser [to parse.object.entries :_obj]
-;; Direct recursion: parse "k":v pair, recurse on ',', stop on '}'.
-(skip.ws)
-localmake "_k (parse.string)
-(skip.ws)
-(expect "|:|)
-localmake "_v (parse.value)
-ignore (ask :_obj [set :_k :_v])
-(skip.ws)
-localmake "_c (next)
-if (equalp :_c "|}|) [stop]
-if not (equalp :_c "|,|) [
-  (throw "error (sentence [json: expected , or "|}|" after entry]))]
-parse.object.entries :_obj
-end
-
-ask :json.parser [to parse.array]
-(expect "|[|)
-(skip.ws)
-if (equalp (peek) "|]|) [ignore (next) output []]
-output (parse.array.elements)
-end
-
-ask :json.parser [to parse.array.elements]
-;; Direct recursion: parse one value, recurse on ',', stop on ']'.
-;; Returns a list with most-recently-parsed value first.
-localmake "_v (parse.value)
-(skip.ws)
-localmake "_c (next)
-if (equalp :_c "|]|) [output (list :_v)]
-if not (equalp :_c "|,|) [
-  (throw "error (sentence [json: expected , or "|]|" after element]))]
-output (fput :_v (parse.array.elements))
-end
-
-ask :json.parser [to parse.string]
-(expect "|"|)
-output (apply "word (parse.string.chars))
-end
-
-ask :json.parser [to parse.string.chars]
-;; Returns a list of char-words; caller does (apply word ...) once at the
-;; end. Cons via fput is O(1) per char, so total O(n) -- prior form built
-;; intermediate suffix words via (word :_c rest) at every step, which was
-;; O(n^2). apply "word [] returns the empty word, so empty strings are fine.
-if (eof) [(throw "error [json: unterminated string])]
-localmake "_c (next)
-if (equalp :_c "|"|) [output []]
-if (equalp :_c (char 92)) [output (fput (parse.escape) (parse.string.chars))]
-output (fput :_c (parse.string.chars))
-end
-
-ask :json.parser [to parse.escape]
-localmake "_c (next)
-if (equalp :_c "|/|) [output "|/|]   ;; JSON allows /, no real escape
-if (equalp :_c "|u|) [output (parse.unicode)]
-localmake "_hit (find [equalp :_c last ?] :json.escapes)
-if not (emptyp :_hit) [output (char (first :_hit))]
-(throw "error (sentence [json: bad escape \\] :_c))
-end
-
-ask :json.parser [to parse.unicode]
-;; Read 4 hex digits, output BMP char. Surrogate pairs not handled.
-localmake "_h1 (next)
-localmake "_h2 (next)
-localmake "_h3 (next)
-localmake "_h4 (next)
-output (char (parseint16 (word :_h1 :_h2 :_h3 :_h4)))
-end
-
-ask :json.parser [to parse.number]
-localmake "_buf (apply "word (parse.number.chars))
-if not (numberp :_buf) [
-  (throw "error (sentence [json: bad number] :_buf))]
-output (:_buf + 0)
-end
-
-ask :json.parser [to parse.number.chars]
-;; Returns a list of normalized digit chars; caller (apply word ...).
-;; (char (ascii c)) converts Logo's syntax-special sentinel bytes (e.g.
-;; raw 19 for "-", 14 for "+") to their raw ASCII form (45, 43). numberp
-;; only accepts raw bytes; without this round-trip a vbar-source input
-;; like "|-5| would parse as a non-numeric word.
-if (eof) [output []]
-if not (memberp (peek) "|0123456789-+.eE|) [output []]
-output (fput (char (ascii (next))) (parse.number.chars))
-end
-
-ask :json.parser [to parse.literal :_word :_value]
-;; _word is the literal text; _value is the parsed Logo value.
-localmake "_n (count :_word)
-localmake "_got (taken :_n (dropn (:_pos - 1) :_src))
-if not (equalp :_got :_word) [
-  (throw "error (sentence [json: expected] :_word [at pos] :_pos))]
-make "_pos (:_pos + :_n)
-output :_value
+to pp.emit :_chunk :_newmode
+  make "pp.acc  (fput :_chunk :pp.acc)
+  make "pp.mode :_newmode
 end
 
 
-;;; helpers
+;;; walker
+
+to json.from.tokens :tok
+  if (numberp :tok) [output :tok]
+  if (listp :tok) [
+    if (emptyp :tok) [output []]
+    if (equalp (first :tok) "Mobj) [output (object.from.tokens (bf :tok))]
+    output (map "json.from.tokens :tok)]
+  if (equalp :tok "true)  [output "true]
+  if (equalp :tok "false) [output "false]
+  if (equalp :tok "null)  [output :json.null]
+  ;; Preprocess emits non-literal words in two shapes only:
+  ;;   - S-prefixed strings (Shello, S42, Strue)  -- discriminate on first char
+  ;;   - signed numbers (-5, +5, -0, 1e-3)        -- everything else
+  if (equalp (item 1 :tok) "S) [output (decode.string (bf :tok))]
+  output ((map "unsentinel.char :tok) + 0)
+end
+
+to unsentinel.char :c
+  ;; parse output stores syntax-special chars as raw control bytes;
+  ;; ascii on them returns the storage byte (NOT the logical code), so
+  ;; the usual `(char (ascii ?))` decoder yields an unprintable byte.
+  ;; For JSON numbers we only need to remap `-` (storage 19) and `+`
+  ;; (storage 14) to their raw ASCII bytes so numberp accepts the result.
+  if ((rawascii :c) = 19) [output (char 45)]
+  if ((rawascii :c) = 14) [output (char 43)]
+  output :c
+end
+
+;; decode.string -- post-process a parse-tokenized string back to the
+;; user-facing form. Two transformations happen here:
+;;
+;;   1. Sentinel-to-raw translation. parse() preserves the sentinel byte
+;;      but strips Logo's logical-char metadata. We translate the bytes
+;;      back so `ascii` of the result yields the original logical char.
+;;
+;;   2. JSON escape decoding. The preprocessor leaves `\X` as 2 raw chars
+;;      (raw 0x5C + the escape letter) so they survive parse without
+;;      hitting bytes 9/10/13 (no sentinel form for those). Here we
+;;      decode \\, \", \/, \n, \t, \r, \b, \f, \uXXXX.
+
+to decode.string :s
+  ;; Fast path: no backslash means no JSON escapes; only need sentinel
+  ;; translation. Most product.json strings (keys, identifiers) take
+  ;; this path.
+  if not (memberp :pp.bslash :s) [output (map "untranslate.sent.char :s)]
+  make "ds.src  :s
+  make "ds.acc  []
+  make "ds.skip 0
+  repeat (count :s) [decode.string.step repcount]
+  output (apply "word (reverse :ds.acc))
+end
+
+to untranslate.sent.char :_c
+  ;; Inverse of string.sent.table. parse() leaves a 3-byte where Logo
+  ;; would normally have a sentinel-encoded space; we restore raw 32.
+  localmake "_n (rawascii :_c)
+  localmake "_h (find [equalp first ? :_n] :string.sent.inv)
+  if not (emptyp :_h) [output (char (last :_h))]
+  output :_c
+end
+
+to decode.string.step :_idx
+  if (:ds.skip > 0) [make "ds.skip (:ds.skip - 1) stop]
+  localmake "_c (item :_idx :ds.src)
+  if not (equalp :_c :pp.bslash) [
+    make "ds.acc (fput (untranslate.sent.char :_c) :ds.acc)
+    stop]
+  ;; \X -- decode via the shared escape table. \uXXXX is the only 6-char form.
+  localmake "_n (item (:_idx + 1) :ds.src)
+  if (equalp :_n "|u|) [
+    localmake "_hex (taken 4 (dropn (:_idx + 1) :ds.src))
+    make "ds.acc (fput (char (parseint16 :_hex)) :ds.acc)
+    make "ds.skip 5
+    stop]
+  localmake "_hit (find [equalp :_n last ?] :json.escapes)
+  ifelse (emptyp :_hit) [
+    ;; Unknown escape (e.g. \/ -- not in :json.escapes). Drop the `\`,
+    ;; keep the next char (untranslate in case it's a sentinel). Matches
+    ;; lenient-JSON convention.
+    make "ds.acc (fput (untranslate.sent.char :_n) :ds.acc)
+  ] [
+    make "ds.acc (fput (char (first :_hit)) :ds.acc)]
+  make "ds.skip 1
+end
+
+to object.from.tokens :pairs
+  localmake "_o (json.object)
+  fill.object :_o :pairs
+  output :_o
+end
+
+to fill.object :_o :pairs
+  if (emptyp :pairs) [stop]
+  if (emptyp (bf :pairs)) [(throw "error [json: odd key/value count])]
+  ignore (ask :_o [set (bf (first :pairs))
+                       (json.from.tokens (first (bf :pairs)))])
+  fill.object :_o (bf (bf :pairs))
+end
+
+
+;;; helpers used by preprocessor's \uXXXX decoder
 
 to parseint16 :w
   ;; n hex digits -> integer. Map over position indices (1..n), weight
-  ;; each digit by 16^(n-i), then sum. Going through iseq because
-  ;; (map T :word) produces a word -- we need numeric output to add.
+  ;; each digit by 16^(n-i), then sum.
   localmake "_n (count :w)
   output (apply "sum (map [(hexdigit (item ? :w)) * (lshift 1 (:_n - ?) * 4)]
                           (iseq 1 :_n)))
@@ -470,19 +553,9 @@ end
 
 ;;; top-level entry
 
-to json.parse :json.in
-  ;; Logo's dynamic scoping makes outer parameter names visible inside any
-  ;; `ask` block, where they collide with same-named object slots. Use a
-  ;; namespace-like prefix here so the parser's :_src slot has no twin in
-  ;; the dynamic chain. Marshal through a global because v6.2.5's oneof
-  ;; initlist plumbing doesn't populate slots and ask's body shadows the
-  ;; caller's locals (so `ask :p [init :json.in]` wouldn't see :json.in).
-  make "json._init.src :json.in
-  localmake "p (oneof :json.parser)
-  ask :p [init]
-  localmake "v (ask :p [parse.value])
-  ask :p [skip.ws]
-  if not (ask :p [eof]) [
-    (throw "error (sentence [json: trailing data at pos] (ask :p [:_pos])))]
-  output :v
+to json.parse :src
+  ;; Preprocess to a Logo-tokenizable word, hand to native `parse`, then
+  ;; walk the resulting token list. parse returns a 1-element list for
+  ;; well-formed input; first peels the wrapper.
+  output (json.from.tokens (first (parse (json.preprocess :src))))
 end
